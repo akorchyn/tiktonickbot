@@ -1,15 +1,14 @@
 use futures::future::join_all;
-use futures::future::Future;
 use futures::FutureExt;
 use reqwest;
-use reqwest::header::{HeaderMap, HeaderValue, REFERER, USER_AGENT};
+use reqwest::header::{HeaderMap, REFERER, USER_AGENT};
 use serde::{self, Deserialize};
 use serde_json;
 
 use std::fs::{self, File};
 use std::io;
 use std::path::Path;
-use reqwest::{Error, Request, Response};
+use reqwest::Response;
 
 fn default_verify_fp() -> &'static str {
     "verify_38576c173a44b96c30ce3f5a6092480a"
@@ -97,7 +96,7 @@ async fn receive_user_likes(
                         download_address: item.video.download_address,
                     })
                     .collect()),
-                Err(e) => Ok(Vec::new()),
+                Err(_) => Ok(Vec::new()),
             }
         }
         Err(e) => Err(e.to_string()),
@@ -105,7 +104,6 @@ async fn receive_user_likes(
 }
 
 async fn receive_user_info_by_login(login: &str) -> Result<UserInfo, String> {
-    let client = reqwest::Client::new();
     let body = send_request_with_default_headers(&format!("https://www.tiktok.com/@{}?", login)).await;
 
     match body {
