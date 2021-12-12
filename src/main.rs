@@ -59,7 +59,7 @@ struct LikeItem {
 #[derive(Deserialize, Debug)]
 struct LikesResponse {
     #[serde(rename = "itemList")]
-    item_list: Vec<LikeItem>,
+    item_list: Option<Vec<LikeItem>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -87,7 +87,7 @@ async fn receive_user_likes(
             let text = response.text().await.unwrap_or("".to_string());
             match serde_json::from_str::<LikesResponse>(&text) {
                 Ok(likes) => Ok(likes
-                    .item_list
+                    .item_list.unwrap_or(Vec::new())
                     .into_iter()
                     .map(|item| LikedVideo {
                         id: item.video.id,
@@ -96,7 +96,7 @@ async fn receive_user_likes(
                         download_address: item.video.download_address,
                     })
                     .collect()),
-                Err(_) => Ok(Vec::new()),
+                Err(e) => Err(e.to_string()),
             }
         }
         Err(e) => Err(e.to_string()),
@@ -174,8 +174,8 @@ async fn main() {
         return;
     }
 
-    match receive_user_info_by_login("valuxaaaa").await {
-        Ok(user_info) => match receive_user_likes(&user_info, 0, 30).await {
+    match receive_user_info_by_login("dimalitvinenko88").await {
+        Ok(user_info) => match receive_user_likes(&user_info, 0, 10).await {
             Ok(liked_videos) => download_videos(&liked_videos).await,
             Err(e) => println!("{}", e),
         },
