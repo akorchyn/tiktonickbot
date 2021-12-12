@@ -97,7 +97,7 @@ async fn receive_user_likes(
                         download_address: item.video.download_address,
                     })
                     .collect()),
-                Err(e) => Err(e.to_string()),
+                Err(e) => Ok(Vec::new()),
             }
         }
         Err(e) => Err(e.to_string()),
@@ -111,13 +111,14 @@ async fn receive_user_info_by_login(login: &str) -> Result<UserInfo, String> {
     match body {
         Ok(response) => {
             let start_pattern = "{\"user\":";
+            let end_pattern = "},\"stats\":";
             let text = response.text().await.unwrap_or("".to_string());
             let json_start = text
                 .find(start_pattern)
                 .and_then(|x| Some(x + start_pattern.len()))
                 .unwrap_or(0);
             let json_end = text[json_start..]
-                .find('}')
+                .find(end_pattern)
                 .and_then(|x| Some(x + json_start + 1))
                 .unwrap_or(0);
 
@@ -125,7 +126,7 @@ async fn receive_user_info_by_login(login: &str) -> Result<UserInfo, String> {
                 let json_text = &text[json_start..json_end];
                 match serde_json::from_str::<UserInfo>(json_text) {
                     Ok(user_info) => Ok(user_info),
-                    Err(e) => Err(e.to_string()),
+                    Err(e) => Err(format!("{}", e.to_string())),
                 }
             } else {
                 Err(format!(
@@ -170,12 +171,12 @@ async fn download_videos(liked_videos: &Vec<LikedVideo>) {
 
 #[tokio::main]
 async fn main() {
-    if Err(e) = fs::create_dir("videos") {
+    if let Err(e) = fs::create_dir_all("videos") {
         println!("Error: couldn't create videos directory.\n{}", e);
         return;
     }
 
-    match receive_user_info_by_login("wolf49xxx").await {
+    match receive_user_info_by_login("valuxaaaa").await {
         Ok(user_info) => match receive_user_likes(&user_info, 0, 30).await {
             Ok(liked_videos) => download_videos(&liked_videos).await,
             Err(e) => println!("{}", e),
