@@ -286,6 +286,9 @@ async fn tiktok_updates_monitor_run(bot: AutoSend<Bot>) {
 
         if let Ok(users) = users {
             for user in users {
+                if user.subscribed_chats.is_empty() {
+                    continue;
+                }
                 log::info!("Processing user {}", user.tiktok_username);
                 if let Ok(tiktok_info) = receive_user_info_by_login(&user.tiktok_username).await {
                     log::info!("Received user {} meta-info", user.tiktok_username);
