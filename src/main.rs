@@ -239,14 +239,16 @@ async fn answer(
     cx: UpdateWithCx<AutoSend<Bot>, Message>,
     command: Command,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    match command {
+    let status = match command {
         Command::Help => {
             cx.answer(Command::descriptions()).await?;
             Ok(())
         }
         Command::LastLike(username) => last_n_videos(cx, username, 1).await,
         Command::LastNLike { username, n } => last_n_videos(cx, username, n).await,
-    }
+    };
+    log::info!("Command handling finished");
+    status
 }
 
 async fn run() {
