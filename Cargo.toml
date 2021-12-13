@@ -13,9 +13,12 @@ futures = "0.3"
 
 # Telegram bot
 teloxide = { version = "0.5", features = ["macros", "auto-send"] }
+mongodb = { version = "2.0.2", features = ["tokio-runtime"] }
+async-trait = "0.1.52"
 
 # General
 log = "0.4"
 pretty_env_logger = "0.4.0"
 serde = { version = "1.0", features = ["derive"] }
-tokio = {"version" = "1.14.0", features=["rt-multi-thread", "macros"]}
+tokio = {"version" = "1.14.0", features=["rt-multi-thread", "macros", "time"]}
+anyhow = "1.0"
