@@ -167,18 +167,60 @@ async fn download_videos(liked_videos: &Vec<LikedVideo>) {
     join_all(futures).await;
 }
 
+use teloxide::{prelude::*, utils::command::BotCommand};
+use teloxide::types::InputFile;
+
+#[derive(BotCommand)]
+#[command(rename = "lowercase", description = "These commands are supported:")]
+enum Command {
+    #[command(description = "display this text.")]
+    Help,
+    #[command(description = "sends last like for given user.")]
+    LastLike(String),
+    #[command(description = "sends last n likes for given user.", parse_with = "split")]
+    LastNLike { username: String, n: u8 },
+}
+
+async fn last_n_videos(cx: UpdateWithCx<AutoSend<Bot>, Message>, username: String, n: u8) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let user_info = receive_user_info_by_login(&username).await?;
+    let liked_videos = receive_user_likes(&user_info, 0, n.into()).await?;
+    download_videos(&liked_videos).await;
+    for video in liked_videos {
+        let filename = format!("videos/{}.mp4", video.id);
+
+        if let Err(_) = cx.answer(format!("User {} liked video from {}. Description:\n{}", username, video.unique_user_id, video.description)).await {
+            println!("Error: Failed to send a video");
+        }
+
+        if let Err(_) = cx.answer_video(InputFile::File(Path::new(&filename).to_path_buf())).await {
+            println!("Error: Failed to send a video");
+        }
+    }
+    Ok(())
+}
+
+async fn answer(
+    cx: UpdateWithCx<AutoSend<Bot>, Message>,
+    command: Command,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    match command {
+        Command::Help => { cx.answer(Command::descriptions()).await?; Ok(())}
+        Command::LastLike(username) =>  last_n_videos(cx, username, 1).await,
+        Command::LastNLike{username, n} => last_n_videos(cx, username, n).await
+    }
+}
+
+async fn run() {
+    let bot = Bot::from_env().auto_send();
+    let bot_name: String = String::from("Tikitoki Likes");
+    teloxide::commands_repl(bot, bot_name, answer).await;
+}
+
 #[tokio::main]
 async fn main() {
     if let Err(e) = fs::create_dir_all("videos") {
         println!("Error: couldn't create videos directory.\n{}", e);
         return;
     }
-
-    match receive_user_info_by_login("dimalitvinenko88").await {
-        Ok(user_info) => match receive_user_likes(&user_info, 0, 10).await {
-            Ok(liked_videos) => download_videos(&liked_videos).await,
-            Err(e) => println!("{}", e),
-        },
-        Err(e) => println!("{}", e),
-    }
+    run().await
 }
