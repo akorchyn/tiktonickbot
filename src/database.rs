@@ -1,12 +1,13 @@
+use futures::stream::StreamExt;
+use serde::{Deserialize, Serialize};
+
 use anyhow;
 use async_trait::async_trait;
-use futures::stream::{StreamExt};
 use mongodb::{
-    bson::{doc, Document, DateTime},
+    bson::{doc, DateTime, Document},
     options::{ClientOptions, UpdateOptions},
     Client, Database,
 };
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct User {
@@ -17,7 +18,7 @@ pub(crate) struct User {
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct VideoRecord {
     pub(crate) id: String,
-    pub(crate) datetime: DateTime
+    pub(crate) datetime: DateTime,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -38,11 +39,7 @@ pub(crate) trait TiktokDatabaseApi {
         tiktok_username: &str,
         chat_id: &str,
     ) -> Result<(), anyhow::Error>;
-    async fn add_video(
-        &self,
-        video_id: &str,
-        tiktok_username: &str,
-    ) -> Result<(), anyhow::Error>;
+    async fn add_video(&self, video_id: &str, tiktok_username: &str) -> Result<(), anyhow::Error>;
     async fn get_users(&self) -> Result<Vec<User>, anyhow::Error>;
     async fn is_video_showed(
         &self,
@@ -64,9 +61,7 @@ impl MongoDatabase {
         let database_client = Client::with_options(client_options)?;
         let database = database_client.database(&database);
 
-        Ok(MongoDatabase {
-            db: database,
-        })
+        Ok(MongoDatabase { db: database })
     }
 }
 
@@ -116,11 +111,7 @@ impl TiktokDatabaseApi for MongoDatabase {
         Ok(())
     }
 
-    async fn add_video(
-        &self,
-        video_id: &str,
-        tiktok_username: &str,
-    ) -> Result<(), anyhow::Error> {
+    async fn add_video(&self, video_id: &str, tiktok_username: &str) -> Result<(), anyhow::Error> {
         let collection = self.db.collection::<Document>("userData");
         let query = doc! {
             "tiktok_username": &tiktok_username,
@@ -165,9 +156,12 @@ impl TiktokDatabaseApi for MongoDatabase {
         let query = doc! {
             "tiktok_username": &tiktok_username
         };
-        let option:Option<UserVideos> = collection.find_one(query, None).await?;
+        let option: Option<UserVideos> = collection.find_one(query, None).await?;
         if let Some(videos) = option {
-            Ok(videos.liked_videos.into_iter().any(|video|video.id == video_id))
+            Ok(videos
+                .liked_videos
+                .into_iter()
+                .any(|video| video.id == video_id))
         } else {
             Ok(false)
         }

@@ -1,19 +1,24 @@
-mod database;
+use std::env;
+use std::fs::{self, File};
+use std::io;
+use std::path::Path;
 
 use futures::future::join_all;
 use futures::FutureExt;
 use reqwest;
 use reqwest::header::{HeaderMap, REFERER, USER_AGENT};
+use reqwest::Response;
 use serde::{self, Deserialize};
 use serde_json;
+use teloxide::types::InputFile;
+use teloxide::{prelude::*, utils::command::BotCommand};
 
 use anyhow;
-use reqwest::Response;
-use std::fs::{self, File};
-use std::io;
-use std::path::Path;
-
 use database::MongoDatabase;
+
+use crate::database::TiktokDatabaseApi;
+
+mod database;
 
 fn default_verify_fp() -> &'static str {
     "verify_38576c173a44b96c30ce3f5a6092480a"
@@ -34,6 +39,15 @@ fn default_headers() -> HeaderMap {
         "referer: 'https://www.tiktok.com/'".parse().unwrap(),
     );
     return headers;
+}
+
+async fn create_db() -> Result<MongoDatabase, anyhow::Error> {
+    if let Ok(con) = env::var("TIKTOK_BOT_MONGO_CON_STRING") {
+        if let Ok(database) = env::var("TIKTOK_BOT_DATABASE_NAME") {
+            return MongoDatabase::from_connection_string(&con, &database).await;
+        }
+    }
+    panic!("TIKTOK_BOT_MONGO_CON_STRING & TIKTOK_BOT_DATABASE_NAME env variables don't exist");
 }
 
 #[derive(Debug)]
@@ -175,10 +189,6 @@ async fn download_videos(liked_videos: &Vec<LikedVideo>) {
     join_all(futures).await;
 }
 
-use crate::database::{TiktokDatabaseApi};
-use teloxide::types::InputFile;
-use teloxide::{prelude::*, utils::command::BotCommand};
-
 async fn last_n_videos(
     cx: UpdateWithCx<AutoSend<Bot>, Message>,
     username: String,
@@ -245,17 +255,19 @@ async fn answer(
         Command::LastLike(username) => last_n_videos(cx, username, 1).await,
         Command::LastNLike { username, n } => last_n_videos(cx, username, n).await,
         Command::Subscribe(username) => {
-            let db = MongoDatabase::from_connection_string("mongodb+srv://polygon:PoLyGoN@polygon.tqdqe.mongodb.net/myFirstDatabase?retryWrites=true&w=majority", "tiktok-bot").await?;
+            let db = create_db().await?;
             let user_info = receive_user_info_by_login(&username).await?;
             let likes = receive_user_likes(&user_info, 0, 5).await?;
             for like in likes {
                 db.add_video(&like.id, &user_info.unique_user_id).await?;
             }
-            db.subscribe_user(&username, &message.chat.id.to_string()).await
+            db.subscribe_user(&username, &message.chat.id.to_string())
+                .await
         }
         Command::Unsubscribe(username) => {
-            let db = MongoDatabase::from_connection_string("mongodb+srv://polygon:PoLyGoN@polygon.tqdqe.mongodb.net/myFirstDatabase?retryWrites=true&w=majority", "tiktok-bot").await?;
-            db.unsubscribe_user(&username, &message.chat.id.to_string()).await
+            let db = create_db().await?;
+            db.unsubscribe_user(&username, &message.chat.id.to_string())
+                .await
         }
     };
     log::info!("Command handling finished");
@@ -263,7 +275,9 @@ async fn answer(
 }
 
 async fn tiktok_updates_monitor_run(bot: AutoSend<Bot>) {
-    let db = MongoDatabase::from_connection_string("mongodb+srv://polygon:PoLyGoN@polygon.tqdqe.mongodb.net/myFirstDatabase?retryWrites=true&w=majority", "tiktok-bot").await.expect("Database connection should be ok");
+    let db = create_db()
+        .await
+        .expect("Expected successful connection to DB");
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
     loop {
         interval.tick().await;
@@ -273,21 +287,35 @@ async fn tiktok_updates_monitor_run(bot: AutoSend<Bot>) {
         if let Ok(users) = users {
             for user in users {
                 log::info!("Processing user {}", user.tiktok_username);
-                receive_user_info_by_login(&user.tiktok_username).await.unwrap();
+                receive_user_info_by_login(&user.tiktok_username)
+                    .await
+                    .unwrap();
                 if let Ok(tiktok_info) = receive_user_info_by_login(&user.tiktok_username).await {
                     log::info!("Received user {} meta-info", user.tiktok_username);
                     if let Ok(videos) = receive_user_likes(&tiktok_info, 0, 5).await {
                         log::info!("Received user {} likes", user.tiktok_username);
                         let to_remove: Vec<_> = join_all(videos.iter().map(|video| async {
-                            db.is_video_showed(&video.id, &tiktok_info.unique_user_id).await.unwrap_or(true)
-                        })).await;
-                        let videos: Vec<LikedVideo> = videos.into_iter().zip(to_remove.into_iter()).filter(|(_, f)| !*f).map(|(v, _)| v ).collect();
+                            db.is_video_showed(&video.id, &tiktok_info.unique_user_id)
+                                .await
+                                .unwrap_or(true)
+                        }))
+                        .await;
+                        let videos: Vec<LikedVideo> = videos
+                            .into_iter()
+                            .zip(to_remove.into_iter())
+                            .filter(|(_, f)| !*f)
+                            .map(|(v, _)| v)
+                            .collect();
                         download_videos(&videos).await;
                         for video in videos {
                             for chat_id in &user.subscribed_chats {
-                                log::info!("Sending video from {} to chat {}", tiktok_info.unique_user_id, chat_id);
-                                let chat_id:i64 = chat_id.parse().unwrap();
-                                let filename= format!("videos/{}.mp4", video.id);
+                                log::info!(
+                                    "Sending video from {} to chat {}",
+                                    tiktok_info.unique_user_id,
+                                    chat_id
+                                );
+                                let chat_id: i64 = chat_id.parse().unwrap();
+                                let filename = format!("videos/{}.mp4", video.id);
                                 if let Err(e) = bot.send_message(chat_id, format!(
                                     "User {} aka {} liked video from {} aka {}.\n\nDescription:\n{}",
                                     tiktok_info.unique_user_id,
@@ -301,13 +329,19 @@ async fn tiktok_updates_monitor_run(bot: AutoSend<Bot>) {
                                     log::error!("Error: Failed to send a text message. {:#?}", e);
                                 }
 
-                                if let Err(e) = bot.send_video(chat_id, InputFile::File(Path::new(&filename).to_path_buf()))
+                                if let Err(e) = bot
+                                    .send_video(
+                                        chat_id,
+                                        InputFile::File(Path::new(&filename).to_path_buf()),
+                                    )
                                     .await
                                 {
                                     log::error!("Error: Failed to send a video. {:#?}", e);
                                 }
 
-                                if let Err(e) =   db.add_video(&&video.id, &tiktok_info.unique_user_id).await {
+                                if let Err(e) =
+                                    db.add_video(&&video.id, &tiktok_info.unique_user_id).await
+                                {
                                     log::error!("Error: Video sent but we couldn't mark it. {}", e);
                                 }
                             }
