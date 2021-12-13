@@ -5,10 +5,10 @@ use reqwest::header::{HeaderMap, REFERER, USER_AGENT};
 use serde::{self, Deserialize};
 use serde_json;
 
+use reqwest::Response;
 use std::fs::{self, File};
 use std::io;
 use std::path::Path;
-use reqwest::Response;
 
 fn default_verify_fp() -> &'static str {
     "verify_38576c173a44b96c30ce3f5a6092480a"
@@ -24,13 +24,17 @@ fn default_headers() -> HeaderMap {
             .parse()
             .unwrap(),
     );
-    headers.insert(REFERER, "referer: 'https://www.tiktok.com/'".parse().unwrap());
+    headers.insert(
+        REFERER,
+        "referer: 'https://www.tiktok.com/'".parse().unwrap(),
+    );
     return headers;
 }
 
 struct LikedVideo {
     id: String,
     unique_user_id: String,
+    nickname: String,
     download_address: String,
     description: String,
 }
@@ -46,6 +50,8 @@ struct Video {
 struct Author {
     #[serde(rename = "uniqueId")]
     unique_user_id: String,
+    #[serde(rename = "nickname")]
+    nickname: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -66,6 +72,7 @@ struct LikesResponse {
 struct UserInfo {
     #[serde(rename = "uniqueId")]
     unique_user_id: String,
+    #[serde(rename = "nickname")]
     nickname: String,
     #[serde(rename = "secUid")]
     sec_uid: String,
@@ -87,11 +94,13 @@ async fn receive_user_likes(
             let text = response.text().await.unwrap_or("".to_string());
             match serde_json::from_str::<LikesResponse>(&text) {
                 Ok(likes) => Ok(likes
-                    .item_list.unwrap_or(Vec::new())
+                    .item_list
+                    .unwrap_or(Vec::new())
                     .into_iter()
                     .map(|item| LikedVideo {
                         id: item.video.id,
                         unique_user_id: item.author.unique_user_id,
+                        nickname: item.author.nickname,
                         description: item.description,
                         download_address: item.video.download_address,
                     })
@@ -104,7 +113,8 @@ async fn receive_user_likes(
 }
 
 async fn receive_user_info_by_login(login: &str) -> Result<UserInfo, String> {
-    let body = send_request_with_default_headers(&format!("https://www.tiktok.com/@{}?", login)).await;
+    let body =
+        send_request_with_default_headers(&format!("https://www.tiktok.com/@{}?", login)).await;
 
     match body {
         Ok(response) => {
@@ -143,32 +153,73 @@ async fn download_videos(liked_videos: &Vec<LikedVideo>) {
         .map(|video| async {
             let filename = format!("videos/{}.mp4", video.id);
             if Path::new(&filename).exists() {
-                println!("Video from user @{} is already cached({}). Skipping...", video.unique_user_id, filename);
-                return true
+                log::info!(
+                    "Video from user @{} is already cached({}). Skipping...",
+                    video.unique_user_id,
+                    filename
+                );
+                return true;
             }
-            println!("Downloading video from user @{}", video.unique_user_id);
-            send_request_with_default_headers(&video.download_address).then(|response| async {
-                if let Ok(data) = response {
-                    println!("Creating file {}", &filename);
-                    if let Ok(mut file) = File::create( &filename ) {
-                        let bytes = data.bytes().await;
-                        if let Ok(bytes) = bytes {
-                            println!("Copying download data to file {}", &filename);
-                            if let Ok(_) = io::copy(&mut bytes.as_ref(), &mut file) {
-                                return true;
+            log::info!("Downloading video from user @{}", video.unique_user_id);
+            send_request_with_default_headers(&video.download_address)
+                .then(|response| async {
+                    if let Ok(data) = response {
+                        log::info!("Creating file {}", &filename);
+                        if let Ok(mut file) = File::create(&filename) {
+                            let bytes = data.bytes().await;
+                            if let Ok(bytes) = bytes {
+                                log::info!("Copying download data to file {}", &filename);
+                                if let Ok(_) = io::copy(&mut bytes.as_ref(), &mut file) {
+                                    return true;
+                                }
                             }
                         }
                     }
-                }
-                false
-            }).await
+                    false
+                })
+                .await
         })
         .collect();
     join_all(futures).await;
 }
 
-use teloxide::{prelude::*, utils::command::BotCommand};
 use teloxide::types::InputFile;
+use teloxide::{prelude::*, utils::command::BotCommand};
+
+async fn last_n_videos(
+    cx: UpdateWithCx<AutoSend<Bot>, Message>,
+    username: String,
+    n: u8,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let user_info = receive_user_info_by_login(&username).await?;
+    let liked_videos = receive_user_likes(&user_info, 0, n.into()).await?;
+    download_videos(&liked_videos).await;
+    for video in liked_videos {
+        let filename = format!("videos/{}.mp4", video.id);
+
+        if let Err(_) = cx
+            .answer(format!(
+                "User {} aka {} liked video from {} aka {}.\n\nDescription:\n{}",
+                user_info.unique_user_id,
+                user_info.nickname,
+                video.unique_user_id,
+                video.nickname,
+                video.description
+            ))
+            .await
+        {
+            log::error!("Error: Failed to send a video");
+        }
+
+        if let Err(_) = cx
+            .answer_video(InputFile::File(Path::new(&filename).to_path_buf()))
+            .await
+        {
+            log::error!("Error: Failed to send a video");
+        }
+    }
+    Ok(())
+}
 
 #[derive(BotCommand)]
 #[command(rename = "lowercase", description = "These commands are supported:")]
@@ -177,26 +228,11 @@ enum Command {
     Help,
     #[command(description = "sends last like for given user.")]
     LastLike(String),
-    #[command(description = "sends last n likes for given user.", parse_with = "split")]
+    #[command(
+        description = "sends last n likes for given user.",
+        parse_with = "split"
+    )]
     LastNLike { username: String, n: u8 },
-}
-
-async fn last_n_videos(cx: UpdateWithCx<AutoSend<Bot>, Message>, username: String, n: u8) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let user_info = receive_user_info_by_login(&username).await?;
-    let liked_videos = receive_user_likes(&user_info, 0, n.into()).await?;
-    download_videos(&liked_videos).await;
-    for video in liked_videos {
-        let filename = format!("videos/{}.mp4", video.id);
-
-        if let Err(_) = cx.answer(format!("User {} liked video from {}. Description:\n{}", username, video.unique_user_id, video.description)).await {
-            println!("Error: Failed to send a video");
-        }
-
-        if let Err(_) = cx.answer_video(InputFile::File(Path::new(&filename).to_path_buf())).await {
-            println!("Error: Failed to send a video");
-        }
-    }
-    Ok(())
 }
 
 async fn answer(
@@ -204,9 +240,12 @@ async fn answer(
     command: Command,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     match command {
-        Command::Help => { cx.answer(Command::descriptions()).await?; Ok(())}
-        Command::LastLike(username) =>  last_n_videos(cx, username, 1).await,
-        Command::LastNLike{username, n} => last_n_videos(cx, username, n).await
+        Command::Help => {
+            cx.answer(Command::descriptions()).await?;
+            Ok(())
+        }
+        Command::LastLike(username) => last_n_videos(cx, username, 1).await,
+        Command::LastNLike { username, n } => last_n_videos(cx, username, n).await,
     }
 }
 
@@ -218,8 +257,9 @@ async fn run() {
 
 #[tokio::main]
 async fn main() {
+    teloxide::enable_logging!();
     if let Err(e) = fs::create_dir_all("videos") {
-        println!("Error: couldn't create videos directory.\n{}", e);
+        log::error!("Error: couldn't create videos directory.\n{}", e);
         return;
     }
     run().await
