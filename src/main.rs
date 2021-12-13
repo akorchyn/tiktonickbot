@@ -190,7 +190,7 @@ async fn last_n_videos(
     for video in liked_videos {
         let filename = format!("videos/{}.mp4", video.id);
 
-        if let Err(_) = cx
+        if let Err(e) = cx
             .answer(format!(
                 "User {} aka {} liked video from {} aka {}.\n\nDescription:\n{}",
                 user_info.unique_user_id,
@@ -201,14 +201,14 @@ async fn last_n_videos(
             ))
             .await
         {
-            log::error!("Error: Failed to send a video");
+            log::error!("Error: Failed to send a text. {:#?}", e);
         }
 
-        if let Err(_) = cx
+        if let Err(e) = cx
             .answer_video(InputFile::File(Path::new(&filename).to_path_buf()))
             .await
         {
-            log::error!("Error: Failed to send a video");
+            log::error!("Error: Failed to send a video {:#?}", e);
         }
     }
     Ok(())
@@ -246,6 +246,11 @@ async fn answer(
         Command::LastNLike { username, n } => last_n_videos(cx, username, n).await,
         Command::Subscribe(username) => {
             let db = MongoDatabase::from_connection_string("mongodb+srv://polygon:PoLyGoN@polygon.tqdqe.mongodb.net/myFirstDatabase?retryWrites=true&w=majority", "tiktok-bot").await?;
+            let user_info = receive_user_info_by_login(&username).await?;
+            let likes = receive_user_likes(&user_info, 0, 5).await?;
+            for like in likes {
+                db.add_video(&like.id, &user_info.unique_user_id).await?;
+            }
             db.subscribe_user(&username, &message.chat.id.to_string()).await
         }
         Command::Unsubscribe(username) => {
@@ -283,7 +288,7 @@ async fn tiktok_updates_monitor_run(bot: AutoSend<Bot>) {
                                 log::info!("Sending video from {} to chat {}", tiktok_info.unique_user_id, chat_id);
                                 let chat_id:i64 = chat_id.parse().unwrap();
                                 let filename= format!("videos/{}.mp4", video.id);
-                                if let Err(_) = bot.send_message(chat_id, format!(
+                                if let Err(e) = bot.send_message(chat_id, format!(
                                     "User {} aka {} liked video from {} aka {}.\n\nDescription:\n{}",
                                     tiktok_info.unique_user_id,
                                     tiktok_info.nickname,
@@ -293,7 +298,7 @@ async fn tiktok_updates_monitor_run(bot: AutoSend<Bot>) {
                                 ))
                                 .await
                                 {
-                                    log::error!("Error: Failed to send a video");
+                                    log::error!("Error: Failed to send a text message. {:#?}", e);
                                 }
 
                                 if let Err(e) = bot.send_video(chat_id, InputFile::File(Path::new(&filename).to_path_buf()))

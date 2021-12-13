@@ -2,7 +2,7 @@ use anyhow;
 use async_trait::async_trait;
 use futures::stream::{StreamExt};
 use mongodb::{
-    bson::{doc, Document},
+    bson::{doc, Document, DateTime},
     options::{ClientOptions, UpdateOptions},
     Client, Database,
 };
@@ -14,10 +14,16 @@ pub(crate) struct User {
     pub(crate) subscribed_chats: Vec<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct VideoRecord {
+    pub(crate) id: String,
+    pub(crate) datetime: DateTime
+}
+
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct UserVideos {
-    pub(crate) tiktok_username: String,
-    pub(crate) liked_videos: Vec<String>,
+    tiktok_username: String,
+    liked_videos: Vec<VideoRecord>,
 }
 
 #[async_trait]
@@ -120,11 +126,17 @@ impl TiktokDatabaseApi for MongoDatabase {
             "tiktok_username": &tiktok_username,
         };
         let options = UpdateOptions::builder().upsert(true).build();
+        let datetime: DateTime = DateTime::now();
         collection
             .update_one(
                 query,
                 doc! {
-                    "$addToSet": {"liked_videos": &video_id}
+                    "$addToSet": {
+                        "liked_videos": {
+                            "id": &video_id,
+                            "datetime": &datetime
+                        }
+                    }
                 },
                 options,
             )
@@ -155,7 +167,7 @@ impl TiktokDatabaseApi for MongoDatabase {
         };
         let option:Option<UserVideos> = collection.find_one(query, None).await?;
         if let Some(videos) = option {
-            Ok(videos.liked_videos.contains(&video_id.to_string()))
+            Ok(videos.liked_videos.into_iter().any(|video|video.id == video_id))
         } else {
             Ok(false)
         }
