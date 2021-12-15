@@ -1,4 +1,4 @@
-web: target/release/tiktok-bot
+worker: target/release/tiktok-bot
 
 
 
