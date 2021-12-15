@@ -20,12 +20,12 @@ use crate::database::{SubscriptionType, TiktokDatabaseApi};
 
 mod database;
 
-fn default_verify_fp() -> &'static str {
-    "verify_38576c173a44b96c30ce3f5a6092480a"
+fn default_verify_fp() -> String {
+    env::var("VERIFY_FP").unwrap()
 }
 
-fn default_cookie() -> &'static str {
-    "tt_csrf_token=IQfpf-pthLMv6c0DFA2aBBif; s_v_web_id=verify_kx6w1bqv_QAPTXoJ3_qEm7_44iK_ADha_krKUdvPl3Bhd; ttwid=1%7CUU8YSXkpbB7s54kiNtPBBDfyk6gySz-qzlHaNK8hzxQ%7C1639534649%7C357838d42c0380ed9a5f9962c4e635d81d23db459c38fac7f698f3a74f2f7aa6; msToken=C5vIMpOzcJxYKCAGZ1WOs640cP4SP8ppT-thSEQtpPum5obiDUnN9Zr7BYD7FZbbtZ8x_je5QaUg9nHILcfrG9s9o0E48XKn2vIN62cSDV7i1eKChZqjftnESu1y_re3cJoifaBrkA=="
+fn default_cookie() -> String {
+    env::var("COOKIE").unwrap()
 }
 
 fn default_headers() -> HeaderMap {
@@ -278,13 +278,15 @@ async fn answer(
             subscribe(username, &chat_id, SubscriptionType::TiktokLikes).await
         }
         Command::SubscribeContent(username) => {
-            subscribe(username, &chat_id, SubscriptionType::TiktokContent).await
+            Ok(())
+            // subscribe(username, &chat_id, SubscriptionType::TiktokContent).await
         }
         Command::UnsubscribeLikes(username) => {
             unsubscribe(username, &chat_id, SubscriptionType::TiktokLikes).await
         }
         Command::UnsubscribeContent(username) => {
-            unsubscribe(username, &chat_id, SubscriptionType::TiktokContent).await
+            Ok(())
+            // unsubscribe(username, &chat_id, SubscriptionType::TiktokContent).await
         }
     };
     log::info!("Command handling finished");
