@@ -1,6 +1,7 @@
 use futures::stream::StreamExt;
 use serde::{Deserialize, Serialize};
 
+use crate::SubscriptionType::{TiktokContent, TiktokLikes};
 use anyhow;
 use async_trait::async_trait;
 use mongodb::{
@@ -12,7 +13,17 @@ use mongodb::{
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct User {
     pub(crate) tiktok_username: String,
-    pub(crate) subscribed_chats: Vec<String>,
+    pub(crate) subscribed_chats: Option<Vec<String>>,
+    pub(crate) subscribed_chats_to_content: Option<Vec<String>>,
+}
+
+impl User {
+    pub fn get_chats_by_subscription_type(&self, stype: SubscriptionType) -> &Option<Vec<String>> {
+        match stype {
+            SubscriptionType::TiktokLikes => &self.subscribed_chats,
+            SubscriptionType::TiktokContent => &self.subscribed_chats_to_content,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -22,9 +33,50 @@ pub(crate) struct VideoRecord {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
-struct UserVideos {
+struct UserStorage {
     tiktok_username: String,
-    liked_videos: Vec<VideoRecord>,
+    liked_videos: Option<Vec<VideoRecord>>,
+    added_videos: Option<Vec<VideoRecord>>,
+}
+
+impl UserStorage {
+    fn get_videos_by_subscription_type(
+        &self,
+        stype: SubscriptionType,
+    ) -> &Option<Vec<VideoRecord>> {
+        match stype {
+            SubscriptionType::TiktokLikes => &self.liked_videos,
+            SubscriptionType::TiktokContent => &self.added_videos,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub(crate) enum SubscriptionType {
+    TiktokLikes,
+    TiktokContent,
+}
+
+impl SubscriptionType {
+    pub fn iterator() -> impl Iterator<Item = SubscriptionType> {
+        [TiktokContent, TiktokLikes].iter().copied()
+    }
+}
+
+impl SubscriptionType {
+    fn as_subscription_string(&self) -> &'static str {
+        match *self {
+            SubscriptionType::TiktokLikes => "subscribed_chats",
+            SubscriptionType::TiktokContent => "subscribed_chats_to_content",
+        }
+    }
+
+    fn as_storage_string(&self) -> &'static str {
+        match *self {
+            SubscriptionType::TiktokLikes => "liked_videos",
+            SubscriptionType::TiktokContent => "added_videos",
+        }
+    }
 }
 
 #[async_trait]
@@ -33,18 +85,27 @@ pub(crate) trait TiktokDatabaseApi {
         &self,
         tiktok_username: &str,
         chat_id: &str,
+        stype: SubscriptionType,
     ) -> Result<(), anyhow::Error>;
+
     async fn unsubscribe_user(
         &self,
         tiktok_username: &str,
         chat_id: &str,
+        stype: SubscriptionType,
     ) -> Result<(), anyhow::Error>;
-    async fn add_video(&self, video_id: &str, tiktok_username: &str) -> Result<(), anyhow::Error>;
+    async fn add_video(
+        &self,
+        video_id: &str,
+        tiktok_username: &str,
+        stype: SubscriptionType,
+    ) -> Result<(), anyhow::Error>;
     async fn get_users(&self) -> Result<Vec<User>, anyhow::Error>;
     async fn is_video_showed(
         &self,
         video_id: &str,
         tiktok_username: &str,
+        stype: SubscriptionType,
     ) -> Result<bool, anyhow::Error>;
 }
 
@@ -71,6 +132,7 @@ impl TiktokDatabaseApi for MongoDatabase {
         &self,
         tiktok_username: &str,
         chat_id: &str,
+        stype: SubscriptionType,
     ) -> Result<(), anyhow::Error> {
         let collection = self.db.collection::<Document>("users");
         let query = doc! {
@@ -81,7 +143,7 @@ impl TiktokDatabaseApi for MongoDatabase {
             .update_one(
                 query,
                 doc! {
-                    "$addToSet": {"subscribed_chats": &chat_id}
+                    "$addToSet": {stype.as_subscription_string(): &chat_id}
                 },
                 options,
             )
@@ -93,6 +155,7 @@ impl TiktokDatabaseApi for MongoDatabase {
         &self,
         tiktok_username: &str,
         chat_id: &str,
+        stype: SubscriptionType,
     ) -> Result<(), anyhow::Error> {
         let collection = self.db.collection::<Document>("users");
         let query = doc! {
@@ -103,7 +166,7 @@ impl TiktokDatabaseApi for MongoDatabase {
             .update_one(
                 query,
                 doc! {
-                    "$pull": {"subscribed_chats": &chat_id}
+                    "$pull": {stype.as_subscription_string(): &chat_id}
                 },
                 options,
             )
@@ -111,7 +174,12 @@ impl TiktokDatabaseApi for MongoDatabase {
         Ok(())
     }
 
-    async fn add_video(&self, video_id: &str, tiktok_username: &str) -> Result<(), anyhow::Error> {
+    async fn add_video(
+        &self,
+        video_id: &str,
+        tiktok_username: &str,
+        stype: SubscriptionType,
+    ) -> Result<(), anyhow::Error> {
         let collection = self.db.collection::<Document>("userData");
         let query = doc! {
             "tiktok_username": &tiktok_username,
@@ -123,7 +191,7 @@ impl TiktokDatabaseApi for MongoDatabase {
                 query,
                 doc! {
                     "$addToSet": {
-                        "liked_videos": {
+                        stype.as_storage_string(): {
                             "id": &video_id,
                             "datetime": &datetime
                         }
@@ -151,19 +219,18 @@ impl TiktokDatabaseApi for MongoDatabase {
         &self,
         video_id: &str,
         tiktok_username: &str,
+        stype: SubscriptionType,
     ) -> Result<bool, anyhow::Error> {
-        let collection = self.db.collection::<UserVideos>("userData");
+        let collection = self.db.collection::<UserStorage>("userData");
         let query = doc! {
             "tiktok_username": &tiktok_username
         };
-        let option: Option<UserVideos> = collection.find_one(query, None).await?;
+        let option: Option<UserStorage> = collection.find_one(query, None).await?;
         if let Some(videos) = option {
-            Ok(videos
-                .liked_videos
-                .into_iter()
-                .any(|video| video.id == video_id))
-        } else {
-            Ok(false)
+            if let Some(videos) = videos.get_videos_by_subscription_type(stype) {
+                return Ok(videos.into_iter().any(|video| video.id == video_id));
+            }
         }
+        Ok(false)
     }
 }

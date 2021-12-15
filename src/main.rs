@@ -16,7 +16,7 @@ use teloxide::{prelude::*, utils::command::BotCommand};
 use anyhow;
 use database::MongoDatabase;
 
-use crate::database::TiktokDatabaseApi;
+use crate::database::{SubscriptionType, TiktokDatabaseApi};
 
 mod database;
 
@@ -24,16 +24,15 @@ fn default_verify_fp() -> &'static str {
     "verify_38576c173a44b96c30ce3f5a6092480a"
 }
 
+fn default_cookie() -> &'static str {
+    "tt_csrf_token=IQfpf-pthLMv6c0DFA2aBBif; s_v_web_id=verify_kx6w1bqv_QAPTXoJ3_qEm7_44iK_ADha_krKUdvPl3Bhd; ttwid=1%7CUU8YSXkpbB7s54kiNtPBBDfyk6gySz-qzlHaNK8hzxQ%7C1639534649%7C357838d42c0380ed9a5f9962c4e635d81d23db459c38fac7f698f3a74f2f7aa6; msToken=C5vIMpOzcJxYKCAGZ1WOs640cP4SP8ppT-thSEQtpPum5obiDUnN9Zr7BYD7FZbbtZ8x_je5QaUg9nHILcfrG9s9o0E48XKn2vIN62cSDV7i1eKChZqjftnESu1y_re3cJoifaBrkA=="
+}
+
 fn default_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
 
     headers.insert(USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36".parse().unwrap());
-    headers.insert(
-        "cookie",
-        format!("s_v_web_id={}", default_verify_fp())
-            .parse()
-            .unwrap(),
-    );
+    headers.insert("cookie", default_cookie().parse().unwrap());
     headers.insert(
         REFERER,
         "referer: 'https://www.tiktok.com/'".parse().unwrap(),
@@ -51,7 +50,7 @@ async fn create_db() -> Result<MongoDatabase, anyhow::Error> {
 }
 
 #[derive(Debug)]
-struct LikedVideo {
+struct Video {
     id: String,
     unique_user_id: String,
     nickname: String,
@@ -60,14 +59,14 @@ struct LikedVideo {
 }
 
 #[derive(Deserialize, Debug)]
-struct Video {
+struct TiktokVideo {
     id: String,
     #[serde(rename = "downloadAddr")]
     download_address: String,
 }
 
 #[derive(Deserialize, Debug)]
-struct Author {
+struct TiktokAuthor {
     #[serde(rename = "uniqueId")]
     unique_user_id: String,
     #[serde(rename = "nickname")]
@@ -75,21 +74,21 @@ struct Author {
 }
 
 #[derive(Deserialize, Debug)]
-struct LikeItem {
-    video: Video,
-    author: Author,
+struct TiktokItem {
+    video: TiktokVideo,
+    author: TiktokAuthor,
     #[serde(rename = "desc")]
     description: String,
 }
 
 #[derive(Deserialize, Debug)]
-struct LikesResponse {
+struct TiktokFeedResponse {
     #[serde(rename = "itemList")]
-    item_list: Option<Vec<LikeItem>>,
+    item_list: Option<Vec<TiktokItem>>,
 }
 
 #[derive(Deserialize, Debug)]
-struct UserInfo {
+struct TiktokUserInfo {
     #[serde(rename = "uniqueId")]
     unique_user_id: String,
     #[serde(rename = "nickname")]
@@ -104,18 +103,18 @@ async fn send_request_with_default_headers(url: &str) -> Result<Response, reqwes
 }
 
 async fn receive_user_likes(
-    user_info: &UserInfo,
+    user_info: &TiktokUserInfo,
     cursor: u32,
     count: u32,
-) -> Result<Vec<LikedVideo>, anyhow::Error> {
+) -> Result<Vec<Video>, anyhow::Error> {
     let response = send_request_with_default_headers(&format!("https://m.tiktok.com/api/favorite/item_list/?aid={}&verifyFp={}&cursor={}&count={}&secUid={}", 1988, default_verify_fp(), cursor, count, user_info.sec_uid)).await?;
     let text = response.text().await.unwrap_or("".to_string());
-    let likes = serde_json::from_str::<LikesResponse>(&text)?;
+    let likes = serde_json::from_str::<TiktokFeedResponse>(&text)?;
     Ok(likes
         .item_list
         .unwrap_or(Vec::new())
         .into_iter()
-        .map(|item| LikedVideo {
+        .map(|item| Video {
             id: item.video.id,
             unique_user_id: item.author.unique_user_id,
             nickname: item.author.nickname,
@@ -125,9 +124,10 @@ async fn receive_user_likes(
         .collect())
 }
 
-async fn receive_user_info_by_login(login: &str) -> Result<UserInfo, anyhow::Error> {
+async fn receive_user_info_by_login(username: &str) -> Result<TiktokUserInfo, anyhow::Error> {
     let response =
-        send_request_with_default_headers(&format!("https://www.tiktok.com/@{}?", login)).await?;
+        send_request_with_default_headers(&format!("https://www.tiktok.com/@{}?", username))
+            .await?;
     let start_pattern = "{\"user\":";
     let end_pattern = "},\"stats\":";
     let text = response.text().await.unwrap_or("".to_string());
@@ -142,18 +142,20 @@ async fn receive_user_info_by_login(login: &str) -> Result<UserInfo, anyhow::Err
 
     if json_start != 0 && json_start < json_end {
         let json_text = &text[json_start..json_end];
-        let user_info = serde_json::from_str::<UserInfo>(json_text)?;
+        let user_info = serde_json::from_str::<TiktokUserInfo>(json_text)?;
         Ok(user_info)
     } else {
         Err(anyhow::anyhow!(
-            "Internal Error: Don't find. Json start -> {} Json end -> {}",
+            "Internal Error: Failed with user {}. Json start -> {} Json end -> {}\nResponse: {}",
+            username,
             json_start,
-            json_end
+            json_end,
+            text
         ))
     }
 }
 
-async fn download_videos(liked_videos: &Vec<LikedVideo>) {
+async fn download_videos(liked_videos: &Vec<Video>) {
     let futures: Vec<_> = liked_videos
         .into_iter()
         .map(|video| async {
@@ -196,32 +198,21 @@ async fn last_n_videos(
 ) -> Result<(), anyhow::Error> {
     let user_info = receive_user_info_by_login(&username).await?;
     let liked_videos = receive_user_likes(&user_info, 0, n.into()).await?;
+    let mut succeed = true;
     download_videos(&liked_videos).await;
     for video in liked_videos {
-        let filename = format!("videos/{}.mp4", video.id);
-
-        if let Err(e) = cx
-            .answer(format!(
-                "User {} aka {} liked video from {} aka {}.\n\nDescription:\n{}",
-                user_info.unique_user_id,
-                user_info.nickname,
-                video.unique_user_id,
-                video.nickname,
-                video.description
-            ))
+        send_video(&cx.requester, &user_info, &cx.update.chat.id.to_string(), &video)
             .await
-        {
-            log::error!("Error: Failed to send a text. {:#?}", e);
-        }
-
-        if let Err(e) = cx
-            .answer_video(InputFile::File(Path::new(&filename).to_path_buf()))
-            .await
-        {
-            log::error!("Error: Failed to send a video {:#?}", e);
-        }
+            .unwrap_or_else(|e| {
+                log::error!("Failed to send video with {}", e);
+                succeed = false;
+            });
     }
-    Ok(())
+    if succeed {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!("Failed to send some videos..."))
+    }
 }
 
 #[derive(BotCommand)]
@@ -237,9 +228,37 @@ enum Command {
     )]
     LastNLike { username: String, n: u8 },
     #[command(description = "subscribe chat to tiktok user likes feed.")]
-    Subscribe(String),
+    SubscribeLikes(String),
+    #[command(description = "subscribe chat to tiktok user likes feed.")]
+    SubscribeContent(String),
     #[command(description = "subscribe chat from tiktok user likes feed.")]
-    Unsubscribe(String),
+    UnsubscribeLikes(String),
+    #[command(description = "subscribe chat from tiktok user likes feed.")]
+    UnsubscribeContent(String),
+}
+
+async fn subscribe(
+    username: String,
+    chat_id: &str,
+    stype: SubscriptionType,
+) -> Result<(), anyhow::Error> {
+    let db = create_db().await?;
+    let user_info = receive_user_info_by_login(&username).await?;
+    let likes = receive_user_likes(&user_info, 0, 5).await?;
+    for like in likes {
+        db.add_video(&like.id, &user_info.unique_user_id, stype)
+            .await?;
+    }
+    db.subscribe_user(&username, &chat_id, stype).await
+}
+
+async fn unsubscribe(
+    username: String,
+    chat_id: &str,
+    stype: SubscriptionType,
+) -> Result<(), anyhow::Error> {
+    let db = create_db().await?;
+    db.unsubscribe_user(&username, &chat_id, stype).await
 }
 
 async fn answer(
@@ -247,6 +266,7 @@ async fn answer(
     command: Command,
 ) -> Result<(), anyhow::Error> {
     let message = &cx.update;
+    let chat_id = message.chat.id.to_string();
     let status = match command {
         Command::Help => {
             cx.answer(Command::descriptions()).await?;
@@ -254,103 +274,136 @@ async fn answer(
         }
         Command::LastLike(username) => last_n_videos(cx, username, 1).await,
         Command::LastNLike { username, n } => last_n_videos(cx, username, n).await,
-        Command::Subscribe(username) => {
-            let db = create_db().await?;
-            let user_info = receive_user_info_by_login(&username).await?;
-            let likes = receive_user_likes(&user_info, 0, 5).await?;
-            for like in likes {
-                db.add_video(&like.id, &user_info.unique_user_id).await?;
-            }
-            db.subscribe_user(&username, &message.chat.id.to_string())
-                .await
+        Command::SubscribeLikes(username) => {
+            subscribe(username, &chat_id, SubscriptionType::TiktokLikes).await
         }
-        Command::Unsubscribe(username) => {
-            let db = create_db().await?;
-            db.unsubscribe_user(&username, &message.chat.id.to_string())
-                .await
+        Command::SubscribeContent(username) => {
+            subscribe(username, &chat_id, SubscriptionType::TiktokContent).await
+        }
+        Command::UnsubscribeLikes(username) => {
+            unsubscribe(username, &chat_id, SubscriptionType::TiktokLikes).await
+        }
+        Command::UnsubscribeContent(username) => {
+            unsubscribe(username, &chat_id, SubscriptionType::TiktokContent).await
         }
     };
     log::info!("Command handling finished");
     status
 }
 
-async fn tiktok_updates_monitor_run(bot: AutoSend<Bot>) {
+async fn filter_sent_videos(
+    db: &MongoDatabase,
+    videos: Vec<Video>,
+    username: &str,
+    stype: SubscriptionType,
+) -> Vec<Video> {
+    let to_remove: Vec<_> = join_all(videos.iter().map(|video| async {
+        db.is_video_showed(&video.id, &username, stype)
+            .await
+            .unwrap_or(true)
+    }))
+    .await;
+
+    videos
+        .into_iter()
+        .zip(to_remove.into_iter())
+        .filter(|(_, f)| !*f)
+        .map(|(v, _)| v)
+        .collect::<Vec<_>>()
+}
+
+async fn get_videos_to_send(
+    db: &MongoDatabase,
+    user: &TiktokUserInfo,
+    stype: SubscriptionType,
+) -> Result<Vec<Video>, anyhow::Error> {
+    let likes = receive_user_likes(&user, 0, 5).await?;
+    log::info!("Received user {} likes", &user.unique_user_id);
+    Ok(filter_sent_videos(db, likes, &user.unique_user_id, stype).await)
+}
+
+async fn send_video(
+    bot: &AutoSend<Bot>,
+    subscribed_info: &TiktokUserInfo,
+    chat_id: &str,
+    video: &Video,
+) -> Result<(), anyhow::Error> {
+    let chat_id: i64 = chat_id.parse().unwrap();
+    let filename = format!("videos/{}.mp4", video.id);
+
+    let message = bot
+        .send_video(chat_id, InputFile::File(Path::new(&filename).to_path_buf()))
+        .await?;
+    bot.edit_message_caption(chat_id, message.id)
+        .caption(format!(
+            "User {} aka {} liked video from {} aka {}.\n\nDescription:\n{}",
+            subscribed_info.unique_user_id,
+            subscribed_info.nickname,
+            video.unique_user_id,
+            video.nickname,
+            video.description
+        ))
+        .send()
+        .await?;
+    Ok(())
+}
+
+async fn tiktok_updates_monitor_run(
+    bot: &AutoSend<Bot>,
+    db: &MongoDatabase,
+) -> Result<(), anyhow::Error> {
+    let users = db.get_users().await?;
+
+    for user in users {
+        for stype in SubscriptionType::iterator() {
+            let chats = user.get_chats_by_subscription_type(stype);
+            if chats.is_none() {
+                continue;
+            }
+            let chats = chats.as_ref().unwrap();
+            log::info!("User {} processing started.", &user.tiktok_username);
+            let tiktok_info = receive_user_info_by_login(&user.tiktok_username).await?;
+            log::info!("Received user {} meta-info", user.tiktok_username);
+            let videos = get_videos_to_send(&db, &tiktok_info, stype).await?;
+            download_videos(&videos).await;
+            for video in videos {
+                for chat in chats {
+                    log::info!(
+                        "Sending video from {} to chat {}",
+                        user.tiktok_username,
+                        chat
+                    );
+                    match send_video(&bot, &tiktok_info, chat, &video).await {
+                        Ok(_) => db.add_video(&video.id, &user.tiktok_username, stype).await?,
+                        Err(e) => log::error!(
+                            "Error happened during sending video to {} with below error:\n{}",
+                            &chat,
+                            e
+                        ),
+                    }
+                }
+            }
+            log::info!("User {} processing finished.", &user.tiktok_username);
+        }
+    }
+    Ok(())
+}
+
+async fn tiktok_updates_monitoring_worker(bot: AutoSend<Bot>) {
     let db = create_db()
         .await
         .expect("Expected successful connection to DB");
+
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
     loop {
         interval.tick().await;
-        log::info!("Started updating TikTok like feed");
-        let users = db.get_users().await;
-
-        if let Ok(users) = users {
-            for user in users {
-                if user.subscribed_chats.is_empty() {
-                    continue;
-                }
-                log::info!("Processing user {}", user.tiktok_username);
-                if let Ok(tiktok_info) = receive_user_info_by_login(&user.tiktok_username).await {
-                    log::info!("Received user {} meta-info", user.tiktok_username);
-                    if let Ok(videos) = receive_user_likes(&tiktok_info, 0, 5).await {
-                        log::info!("Received user {} likes", user.tiktok_username);
-                        let to_remove: Vec<_> = join_all(videos.iter().map(|video| async {
-                            db.is_video_showed(&video.id, &tiktok_info.unique_user_id)
-                                .await
-                                .unwrap_or(true)
-                        }))
-                        .await;
-                        let videos: Vec<LikedVideo> = videos
-                            .into_iter()
-                            .zip(to_remove.into_iter())
-                            .filter(|(_, f)| !*f)
-                            .map(|(v, _)| v)
-                            .collect();
-                        download_videos(&videos).await;
-                        for video in videos {
-                            for chat_id in &user.subscribed_chats {
-                                log::info!(
-                                    "Sending video from {} to chat {}",
-                                    tiktok_info.unique_user_id,
-                                    chat_id
-                                );
-                                let chat_id: i64 = chat_id.parse().unwrap();
-                                let filename = format!("videos/{}.mp4", video.id);
-                                if let Err(e) = bot.send_message(chat_id, format!(
-                                    "User {} aka {} liked video from {} aka {}.\n\nDescription:\n{}",
-                                    tiktok_info.unique_user_id,
-                                    tiktok_info.nickname,
-                                    video.unique_user_id,
-                                    video.nickname,
-                                    video.description
-                                ))
-                                .await
-                                {
-                                    log::error!("Error: Failed to send a text message. {:#?}", e);
-                                }
-
-                                if let Err(e) = bot
-                                    .send_video(
-                                        chat_id,
-                                        InputFile::File(Path::new(&filename).to_path_buf()),
-                                    )
-                                    .await
-                                {
-                                    log::error!("Error: Failed to send a video. {:#?}", e);
-                                }
-
-                                if let Err(e) =
-                                    db.add_video(&&video.id, &tiktok_info.unique_user_id).await
-                                {
-                                    log::error!("Error: Video sent but we couldn't mark it. {}", e);
-                                }
-                            }
-                        }
-                    }
-                    log::info!("User {} processing finished.", &tiktok_info.unique_user_id);
-                }
-            }
-        }
+        log::info!("Started updating TikTok feeds");
+        tiktok_updates_monitor_run(&bot, &db)
+            .await
+            .unwrap_or_else(|e| {
+                log::error!("Tiktok update run failed with an error: {}", e);
+            });
+        log::info!("Finished updating TikTok feeds");
     }
 }
 
@@ -358,7 +411,7 @@ async fn bot_run() {
     let bot = Bot::from_env().auto_send();
     let bot_name: String = String::from("Tikitoki Likes");
 
-    tokio::spawn(tiktok_updates_monitor_run(bot.clone()));
+    tokio::spawn(tiktok_updates_monitoring_worker(bot.clone()));
     teloxide::commands_repl(bot, bot_name, answer).await;
 }
 
