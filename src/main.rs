@@ -107,7 +107,7 @@ async fn receive_user_likes(
     cursor: u32,
     count: u32,
 ) -> Result<Vec<Video>, anyhow::Error> {
-    let response = send_request_with_default_headers(&format!("https://m.tiktok.com/api/favorite/item_list/?aid={}&verifyFp={}&cursor={}&count={}&secUid={}", 1988, default_verify_fp(), cursor, count, user_info.sec_uid)).await?;
+    let response = send_request_with_default_headers(&format!("https://m.tiktok.com/api/favorite/item_list/?aid={}&verifyFp={}&cursor={}&count={}&secUid={}&msToken={}&X-Bogus={}&_signature={}", 1988, default_verify_fp(), cursor, count, user_info.sec_uid,env::var("msToken").unwrap(),env::var("X-Bogus").unwrap(),env::var("_signature").unwrap())).await?;
     let text = response.text().await.unwrap_or("".to_string());
     let likes = serde_json::from_str::<TiktokFeedResponse>(&text)?;
     Ok(likes
