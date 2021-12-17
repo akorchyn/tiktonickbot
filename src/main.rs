@@ -6,16 +6,11 @@ use std::path::Path;
 use futures::future::join_all;
 use futures::FutureExt;
 use reqwest;
-use reqwest::header::{HeaderMap, REFERER, USER_AGENT};
-use reqwest::Response;
-use serde::{self, Deserialize};
-use serde_json;
 use teloxide::types::InputFile;
 use teloxide::{prelude::*, utils::command::BotCommand};
 
 use anyhow;
 use database::MongoDatabase;
-use tokio::count;
 
 mod api;
 mod database;
@@ -125,7 +120,7 @@ enum Command {
     #[command(description = "subscribe chat to tiktok user likes feed.")]
     SubscribeLikes(String),
     #[command(description = "subscribe chat to tiktok user likes feed.")]
-    SubscribeContent(String),
+    SubscribeVideo(String),
     #[command(description = "subscribe chat from tiktok user likes feed.")]
     UnsubscribeLikes(String),
     #[command(description = "subscribe chat from tiktok user likes feed.")]
@@ -325,7 +320,7 @@ async fn tiktok_updates_monitoring_worker(bot: AutoSend<Bot>) {
         .await
         .expect("Expected successful connection to DB");
 
-    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(120));
     loop {
         interval.tick().await;
         log::info!("Started updating TikTok feeds");

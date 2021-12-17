@@ -1,14 +1,8 @@
 use reqwest;
-use reqwest::header::{HeaderMap, REFERER, USER_AGENT};
-use reqwest::Response;
 
 use std::env;
-use std::fs::{self, File};
-use std::io;
-use std::path::Path;
 
 use crate::api::{ApiContentReceiver, ApiUserInfoReceiver};
-use crate::tiktokdb::User;
 use anyhow;
 use async_trait::async_trait;
 use serde::{self, Deserialize};
