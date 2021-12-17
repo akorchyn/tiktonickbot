@@ -5,6 +5,9 @@ import json
 import os
 from functools import wraps
 
+import resource
+resource.setrlimit(resource.RLIMIT_NOFILE, (512, 512))
+
 app = Flask(__name__)
 api = TikTokApi.get_instance()
 API_KEY = os.environ.get('SECRET_KEY', 'blahblah')

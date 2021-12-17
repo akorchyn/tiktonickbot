@@ -110,10 +110,10 @@ enum Command {
         parse_with = "split"
     )]
     LastNLike { username: String, n: u8 },
-    #[command(description = "sends last like for given user.")]
+    #[command(description = "sends last video for given user.")]
     LastVideo(String),
     #[command(
-        description = "sends last n likes for given user.",
+        description = "sends last n videos for given user.",
         parse_with = "split"
     )]
     LastNVideo { username: String, n: u8 },
@@ -121,9 +121,9 @@ enum Command {
     SubscribeLikes(String),
     #[command(description = "subscribe chat to tiktok user likes feed.")]
     SubscribeVideo(String),
-    #[command(description = "subscribe chat from tiktok user likes feed.")]
+    #[command(description = "unsubscribe chat from tiktok user video feed.")]
     UnsubscribeLikes(String),
-    #[command(description = "subscribe chat from tiktok user likes feed.")]
+    #[command(description = "unsubscribe chat from tiktok user video feed.")]
     UnsubscribeVideo(String),
 }
 
