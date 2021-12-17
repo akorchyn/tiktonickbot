@@ -6,7 +6,7 @@ import os
 from functools import wraps
 
 import resource
-resource.setrlimit(resource.RLIMIT_NOFILE, (512, 512))
+resource.setrlimit(resource.RLIMIT_NOFILE, (430, 430))
 
 app = Flask(__name__)
 api = TikTokApi.get_instance()

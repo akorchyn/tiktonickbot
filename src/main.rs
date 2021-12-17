@@ -277,8 +277,10 @@ async fn tiktok_updates_monitor_run(
 ) -> Result<(), anyhow::Error> {
     let users = db.get_users::<tiktokdb::User>().await?;
     let api = TiktokApi::from_env();
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
 
     for user in users {
+        interval.tick().await;
         for stype in tiktokdb::SubscriptionType::iterator() {
             let chats = user.get_chats_by_subscription_type(stype);
             if chats.is_none() {
@@ -319,8 +321,8 @@ async fn tiktok_updates_monitoring_worker(bot: AutoSend<Bot>) {
     let db = create_db()
         .await
         .expect("Expected successful connection to DB");
-
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(120));
+
     loop {
         interval.tick().await;
         log::info!("Started updating TikTok feeds");
