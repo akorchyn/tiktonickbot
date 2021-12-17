@@ -1,3 +1,5 @@
 /target
 /videos
 /.idea
+**/__pycache__
+**/env
