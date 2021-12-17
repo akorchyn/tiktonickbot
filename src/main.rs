@@ -124,7 +124,7 @@ enum Command {
     #[command(description = "subscribe chat from tiktok user likes feed.")]
     UnsubscribeLikes(String),
     #[command(description = "subscribe chat from tiktok user likes feed.")]
-    UnsubscribeContent(String),
+    UnsubscribeVideo(String),
 }
 
 async fn subscribe(
@@ -178,7 +178,7 @@ async fn answer(
         Command::SubscribeLikes(username) => {
             subscribe(username, &chat_id, tiktokapi::SubscriptionType::Likes).await
         }
-        Command::SubscribeContent(username) => {
+        Command::SubscribeVideo(username) => {
             subscribe(
                 username,
                 &chat_id,
@@ -189,7 +189,7 @@ async fn answer(
         Command::UnsubscribeLikes(username) => {
             unsubscribe(username, &chat_id, tiktokapi::SubscriptionType::Likes).await
         }
-        Command::UnsubscribeContent(username) => {
+        Command::UnsubscribeVideo(username) => {
             unsubscribe(
                 username,
                 &chat_id,
