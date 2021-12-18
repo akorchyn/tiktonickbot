@@ -96,15 +96,15 @@ impl tiktok::DatabaseApi for MongoDatabase {
         Ok(())
     }
 
-    async fn add_video(
+    async fn add_content(
         &self,
-        video_id: &str,
-        tiktok_username: &str,
+        content_id: &str,
+        user_id: &str,
         stype: tiktok::SubscriptionType,
     ) -> Result<(), anyhow::Error> {
         let collection = self.db.collection::<Document>("userData");
         let query = doc! {
-            "tiktok_username": &tiktok_username,
+            "tiktok_username": &user_id,
         };
         let options = UpdateOptions::builder().upsert(true).build();
         let datetime: DateTime = DateTime::now();
@@ -114,7 +114,7 @@ impl tiktok::DatabaseApi for MongoDatabase {
                 doc! {
                     "$addToSet": {
                         stype.as_storage_string(): {
-                            "id": &video_id,
+                            "id": &content_id,
                             "datetime": &datetime
                         }
                     }
@@ -139,6 +139,25 @@ impl tiktok::DatabaseApi for MongoDatabase {
         if let Some(videos) = option {
             if let Some(videos) = videos.get_videos_by_subscription_type(stype) {
                 return Ok(videos.into_iter().any(|video| video.id == video_id));
+            }
+        }
+        Ok(false)
+    }
+
+    async fn is_user_subscribed(
+        &self,
+        user_id: &str,
+        chat_id: &str,
+        stype: tiktok::SubscriptionType,
+    ) -> Result<bool, anyhow::Error> {
+        let collection = self.db.collection::<tiktok::User>("users");
+        let query = doc! {
+            "tiktok_username": &user_id
+        };
+        let option: Option<tiktok::User> = collection.find_one(query, None).await?;
+        if let Some(user) = option {
+            if let Some(chats) = user.get_chats_by_subscription_type(stype) {
+                return Ok(chats.into_iter().any(|id| chat_id == id));
             }
         }
         Ok(false)

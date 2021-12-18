@@ -67,7 +67,7 @@ async fn download_videos(liked_videos: &Vec<tiktokapi::Video>) {
 }
 
 async fn last_n_videos(
-    cx: UpdateWithCx<AutoSend<Bot>, Message>,
+    cx: &UpdateWithCx<AutoSend<Bot>, Message>,
     username: String,
     n: u8,
     etype: tiktokapi::SubscriptionType,
@@ -128,28 +128,53 @@ enum Command {
 }
 
 async fn subscribe(
+    cx: &UpdateWithCx<AutoSend<Bot>, Message>,
     username: String,
     chat_id: &str,
     stype: tiktokdb::SubscriptionType,
 ) -> Result<(), anyhow::Error> {
     let db = create_db().await?;
-    let api = TiktokApi::from_env();
-    let user_info = api.get_user_info(&username).await?;
-    let likes = api.get_content(&username, 5, stype).await?;
-    for like in likes {
-        db.add_video(&like.id, &user_info.unique_user_id, stype)
+
+    if db.is_user_subscribed(&username, chat_id, stype).await? {
+        cx.answer(format!("You already subscribed to {}", &username))
             .await?;
+        Ok(())
+    } else {
+        let api = TiktokApi::from_env();
+        let user_info = api.get_user_info(&username).await?;
+        let likes = api.get_content(&username, 5, stype).await?;
+        for like in likes {
+            db.add_content(&like.id, &user_info.unique_user_id, stype)
+                .await?;
+        }
+        db.subscribe_user(&username, &chat_id, stype).await?;
+        cx.answer(format!(
+            "Successfully subscribed to {} aka {}",
+            &username, &user_info.nickname
+        ))
+        .await?;
+        Ok(())
     }
-    db.subscribe_user(&username, &chat_id, stype).await
 }
 
 async fn unsubscribe(
+    cx: &UpdateWithCx<AutoSend<Bot>, Message>,
     username: String,
     chat_id: &str,
     stype: tiktokdb::SubscriptionType,
 ) -> Result<(), anyhow::Error> {
     let db = create_db().await?;
-    db.unsubscribe_user(&username, &chat_id, stype).await
+
+    if !db.is_user_subscribed(&username, chat_id, stype).await? {
+        cx.answer(format!("You were not subscribed to {}", &username))
+            .await?;
+        Ok(())
+    } else {
+        db.unsubscribe_user(&username, &chat_id, stype).await?;
+        cx.answer(format!("Successfully unsubscribed from {}", username))
+            .await?;
+        Ok(())
+    }
 }
 
 async fn answer(
@@ -164,22 +189,23 @@ async fn answer(
             Ok(())
         }
         Command::LastLike(username) => {
-            last_n_videos(cx, username, 1, tiktokapi::SubscriptionType::Likes).await
+            last_n_videos(&cx, username, 1, tiktokapi::SubscriptionType::Likes).await
         }
         Command::LastNLike { username, n } => {
-            last_n_videos(cx, username, n, tiktokapi::SubscriptionType::Likes).await
+            last_n_videos(&cx, username, n, tiktokapi::SubscriptionType::Likes).await
         }
         Command::LastVideo(username) => {
-            last_n_videos(cx, username, 1, tiktokapi::SubscriptionType::CreatedVideos).await
+            last_n_videos(&cx, username, 1, tiktokapi::SubscriptionType::CreatedVideos).await
         }
         Command::LastNVideo { username, n } => {
-            last_n_videos(cx, username, n, tiktokapi::SubscriptionType::CreatedVideos).await
+            last_n_videos(&cx, username, n, tiktokapi::SubscriptionType::CreatedVideos).await
         }
         Command::SubscribeLikes(username) => {
-            subscribe(username, &chat_id, tiktokapi::SubscriptionType::Likes).await
+            subscribe(&cx, username, &chat_id, tiktokapi::SubscriptionType::Likes).await
         }
         Command::SubscribeVideo(username) => {
             subscribe(
+                &cx,
                 username,
                 &chat_id,
                 tiktokapi::SubscriptionType::CreatedVideos,
@@ -187,10 +213,11 @@ async fn answer(
             .await
         }
         Command::UnsubscribeLikes(username) => {
-            unsubscribe(username, &chat_id, tiktokapi::SubscriptionType::Likes).await
+            unsubscribe(&cx, username, &chat_id, tiktokapi::SubscriptionType::Likes).await
         }
         Command::UnsubscribeVideo(username) => {
             unsubscribe(
+                &cx,
                 username,
                 &chat_id,
                 tiktokapi::SubscriptionType::CreatedVideos,
@@ -199,6 +226,11 @@ async fn answer(
         }
     };
     log::info!("Command handling finished");
+    if let Err(e) = &status {
+        if let Err(_) = cx.answer("Unfortunately, you request failed. Please, check input data corectness. If you are sure that your input is correct. Try again later").await {
+            log::info!("Failed to respond to user with error message.\nInitial error: {}", e.to_string());
+        }
+    }
     status
 }
 
@@ -300,7 +332,7 @@ async fn tiktok_updates_monitor_run(
                     let tiktok_info = api.get_user_info(&user.tiktok_username).await?;
                     match send_video(&bot, &tiktok_info, chat, &video, stype).await {
                         Ok(_) => {
-                            db.add_video(&video.id, &user.tiktok_username, stype)
+                            db.add_content(&video.id, &user.tiktok_username, stype)
                                 .await?
                         }
                         Err(e) => log::error!(

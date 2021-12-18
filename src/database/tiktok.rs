@@ -20,16 +20,25 @@ pub(crate) trait DatabaseApi {
         chat_id: &str,
         stype: SubscriptionType,
     ) -> Result<(), anyhow::Error>;
-    async fn add_video(
+
+    async fn add_content(
         &self,
-        video_id: &str,
-        tiktok_username: &str,
+        content_id: &str,
+        user_id: &str,
         stype: SubscriptionType,
     ) -> Result<(), anyhow::Error>;
+
     async fn is_video_showed(
         &self,
         video_id: &str,
         tiktok_username: &str,
+        stype: SubscriptionType,
+    ) -> Result<bool, anyhow::Error>;
+
+    async fn is_user_subscribed(
+        &self,
+        user_id: &str,
+        chat_id: &str,
         stype: SubscriptionType,
     ) -> Result<bool, anyhow::Error>;
 }
