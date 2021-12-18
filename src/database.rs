@@ -19,8 +19,8 @@ pub(crate) trait CollectionReturn {
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub(crate) struct ChatInfo {
     pub(crate) chat_id: String,
-    pub(crate) subscribed_for_likes_to: Vec<String>,
-    pub(crate) subscribed_for_content_to: Vec<String>,
+    pub(crate) subscribed_for_likes_to: Option<Vec<String>>,
+    pub(crate) subscribed_for_content_to: Option<Vec<String>>,
 }
 
 impl CollectionReturn for ChatInfo {

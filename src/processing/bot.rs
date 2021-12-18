@@ -2,7 +2,7 @@ use teloxide::{prelude::*, utils::command::BotCommand};
 
 use super::*;
 use crate::api::{ApiContentReceiver, ApiUserInfoReceiver};
-use crate::database::{tiktok::DatabaseApi, ChatInfo};
+use crate::database::tiktok::DatabaseApi;
 
 #[derive(BotCommand)]
 #[command(rename = "lowercase", description = "These commands are supported:")]
@@ -106,19 +106,15 @@ async fn show_subscriptions(
     let chat = db.get_chat_info(chat_id).await?;
     let empty_text = "Currently, group doesn't have any subscriptions";
     if let Some(chat) = chat {
-        if !chat.subscribed_for_content_to.is_empty() || !chat.subscribed_for_likes_to.is_empty() {
-            let content_subscribers = chat
-                .subscribed_for_content_to
-                .into_iter()
-                .fold(String::new(), |result, i| {
-                    result + &format!("@{} - Content-type subscription\n", i)
-                });
-            let like_subscribers = chat
-                .subscribed_for_likes_to
-                .into_iter()
-                .fold(String::new(), |result, i| {
-                    result + &format!("@{} - Like-type subscription\n", i)
-                });
+        let content = chat.subscribed_for_content_to.unwrap_or(Vec::new());
+        let likes = chat.subscribed_for_likes_to.unwrap_or(Vec::new());
+        if !content.is_empty() || !likes.is_empty() {
+            let content_subscribers = content.into_iter().fold(String::new(), |result, i| {
+                result + &format!("@{} - Content-type subscription\n", i)
+            });
+            let like_subscribers = likes.into_iter().fold(String::new(), |result, i| {
+                result + &format!("@{} - Like-type subscription\n", i)
+            });
             cx.answer(format!(
                 "Group subscriptions:\n{}{}",
                 content_subscribers, like_subscribers
