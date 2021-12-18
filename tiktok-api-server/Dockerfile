@@ -3,4 +3,4 @@ WORKDIR /app
 COPY requirements.txt requirements.txt
 RUN pip3 install -r requirements.txt
 COPY . .
-CMD python3 -m flask run --no-debugger --no-reload --without-threads --port=$PORT --host='0.0.0.0'
+CMD gunicorn wsji:app --bind=0.0.0.0:$PORT --max-requests 10

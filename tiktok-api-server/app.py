@@ -10,7 +10,7 @@ resource.setrlimit(resource.RLIMIT_NOFILE, (430, 430))
 
 app = Flask(__name__)
 api = TikTokApi.get_instance()
-API_KEY = os.environ.get('SECRET_KEY', '546D7C37C7E376F466B5828341CF7')
+API_KEY = os.environ.get('SECRET_KEY', 'blahblah')
 
 def checkAppKey(view_function):
     @wraps(view_function)
@@ -46,6 +46,3 @@ def user_likes():
     if username is None:
         return ""
     return json.dumps(api.user_liked_by_username(username, count))
-
-if __name__ == "__main__":
-    app.run(app, host='0.0.0.0', port=os.environ.get('PORT', 3000))
