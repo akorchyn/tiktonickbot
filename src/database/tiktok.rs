@@ -97,6 +97,13 @@ impl SubscriptionType {
         }
     }
 
+    pub(super) fn as_chat_string(&self) -> &'static str {
+        match *self {
+            SubscriptionType::Likes => "subscribed_for_likes_to",
+            SubscriptionType::CreatedVideos => "subscribed_for_content_to",
+        }
+    }
+
     pub(super) fn as_storage_string(&self) -> &'static str {
         match *self {
             SubscriptionType::Likes => "liked_videos",

@@ -2,13 +2,15 @@ use teloxide::{prelude::*, utils::command::BotCommand};
 
 use super::*;
 use crate::api::{ApiContentReceiver, ApiUserInfoReceiver};
-use crate::database::tiktok::DatabaseApi;
+use crate::database::{tiktok::DatabaseApi, ChatInfo};
 
 #[derive(BotCommand)]
 #[command(rename = "lowercase", description = "These commands are supported:")]
 enum Command {
     #[command(description = "display this text.")]
     Help,
+    #[command(description = "shows subscriptions for this chat")]
+    ShowSubscriptions,
     #[command(description = "sends last like for given user.")]
     LastLike(String),
     #[command(
@@ -48,6 +50,7 @@ async fn answer(
             cx.answer(Command::descriptions()).await?;
             Ok(())
         }
+        Command::ShowSubscriptions => show_subscriptions(&cx, &chat_id).await,
         Command::LastLike(username) => {
             last_n_videos(&cx, username, 1, tiktokapi::SubscriptionType::Likes).await
         }
@@ -92,6 +95,42 @@ async fn answer(
         }
     }
     status
+}
+
+async fn show_subscriptions(
+    cx: &UpdateWithCx<AutoSend<Bot>, Message>,
+    chat_id: &str,
+) -> Result<(), anyhow::Error> {
+    let db = create_db().await?;
+
+    let chat = db.get_chat_info(chat_id).await?;
+    let empty_text = "Currently, group doesn't have any subscriptions";
+    if let Some(chat) = chat {
+        if !chat.subscribed_for_content_to.is_empty() || !chat.subscribed_for_likes_to.is_empty() {
+            let content_subscribers = chat
+                .subscribed_for_content_to
+                .into_iter()
+                .fold(String::new(), |result, i| {
+                    result + &format!("@{} - Content-type subscription\n", i)
+                });
+            let like_subscribers = chat
+                .subscribed_for_likes_to
+                .into_iter()
+                .fold(String::new(), |result, i| {
+                    result + &format!("@{} - Like-type subscription\n", i)
+                });
+            cx.answer(format!(
+                "Group subscriptions:\n{}{}",
+                content_subscribers, like_subscribers
+            ))
+            .await?;
+        } else {
+            cx.answer(empty_text).await?;
+        }
+    } else {
+        cx.answer(empty_text).await?;
+    }
+    Ok(())
 }
 
 async fn last_n_videos(

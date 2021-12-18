@@ -29,7 +29,7 @@ async fn tiktok_updates_monitor_run(
     bot: &AutoSend<Bot>,
     db: &MongoDatabase,
 ) -> Result<(), anyhow::Error> {
-    let users = db.get_users::<tiktokdb::User>().await?;
+    let users = db.get_collection::<tiktokdb::User>().await?;
     let api = tiktokapi::TiktokApi::from_env();
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
 
@@ -45,6 +45,7 @@ async fn tiktok_updates_monitor_run(
             let videos = get_videos_to_send(&db, &user.tiktok_username, stype).await?;
             download_videos(&videos).await;
             for video in videos {
+                let mut succeed = false;
                 for chat in chats {
                     log::info!(
                         "Sending video from {} to chat {}",
@@ -53,16 +54,17 @@ async fn tiktok_updates_monitor_run(
                     );
                     let tiktok_info = api.get_user_info(&user.tiktok_username).await?;
                     match send_video(&bot, &tiktok_info, chat, &video, stype).await {
-                        Ok(_) => {
-                            db.add_content(&video.id, &user.tiktok_username, stype)
-                                .await?
-                        }
+                        Ok(_) => succeed = true,
                         Err(e) => log::error!(
                             "Error happened during sending video to {} with below error:\n{}",
                             &chat,
                             e
                         ),
                     }
+                }
+                if succeed {
+                    db.add_content(&video.id, &user.tiktok_username, stype)
+                        .await?
                 }
             }
             log::info!("User {} processing finished.", &user.tiktok_username);

@@ -100,8 +100,8 @@ impl ApiUserInfoReceiver<UserInfo> for TiktokApi {
     async fn get_user_info(&self, id: &str) -> Result<UserInfo, anyhow::Error> {
         // Count parameter would be ignored by server
         let response = reqwest::get(self.create_query("user_info", id, 0)).await?;
-        let text = response.text().await.unwrap_or("".to_string());
-        let data = serde_json::from_str::<UserInfo>(&text).unwrap();
+        let text = response.text().await?;
+        let data = serde_json::from_str::<UserInfo>(&text)?;
         Ok(data)
     }
 }
