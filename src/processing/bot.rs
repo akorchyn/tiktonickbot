@@ -1,37 +1,77 @@
 use teloxide::{prelude::*, utils::command::BotCommand};
 
 use super::*;
-use crate::api::{ApiContentReceiver, ApiUserInfoReceiver};
+use crate::api::{ApiContentReceiver, ApiUserInfoReceiver, FromEnv};
 use crate::database::tiktok::DatabaseApi;
 
 #[derive(BotCommand)]
 #[command(rename = "lowercase", description = "These commands are supported:")]
 enum Command {
+    // General info:
     #[command(description = "display this text.")]
     Help,
-    #[command(description = "shows subscriptions for this chat")]
+    #[command(
+        rename = "subscriptions",
+        description = "shows subscriptions for this chat"
+    )]
     ShowSubscriptions,
-    #[command(description = "sends last like for given user.")]
+    // Twitter commands:
+    #[command(rename = "tweet", description = "sends last tweet for given user.")]
+    LastTweet(String),
+    #[command(
+        rename = "tweets",
+        description = "sends last n tweets for given user.",
+        parse_with = "split"
+    )]
+    LastNTweets { username: String, n: u8 },
+    #[command(
+        rename = "ltweet",
+        description = "sends last liked tweet for given user."
+    )]
+    LastLikedTweet(String),
+    #[command(
+        rename = "ltweets",
+        description = "sends last n liked tweets for given user.",
+        parse_with = "split"
+    )]
+    LastNLikedTweet { username: String, n: u8 },
+
+    // Tiktok commands:
+    #[command(rename = "ltiktok", description = "sends last like for given user.")]
     LastLike(String),
     #[command(
+        rename = "ltiktoks",
         description = "sends last n likes for given user.",
         parse_with = "split"
     )]
     LastNLike { username: String, n: u8 },
-    #[command(description = "sends last video for given user.")]
+    #[command(rename = "tiktok", description = "sends last video for given user.")]
     LastVideo(String),
     #[command(
+        rename = "ltiktoks",
         description = "sends last n videos for given user.",
         parse_with = "split"
     )]
     LastNVideo { username: String, n: u8 },
-    #[command(description = "subscribe chat to tiktok user likes feed.")]
+    #[command(
+        rename = "sub_tiktok_likes",
+        description = "subscribe chat to tiktok user likes feed."
+    )]
     SubscribeLikes(String),
-    #[command(description = "subscribe chat to tiktok user likes feed.")]
+    #[command(
+        rename = "sub_tiktok",
+        description = "subscribe chat to tiktok user likes feed."
+    )]
     SubscribeVideo(String),
-    #[command(description = "unsubscribe chat from tiktok user video feed.")]
+    #[command(
+        rename = "unsub_tiktok_likes",
+        description = "unsubscribe chat from tiktok user video feed."
+    )]
     UnsubscribeLikes(String),
-    #[command(description = "unsubscribe chat from tiktok user video feed.")]
+    #[command(
+        rename = "unsub_tiktok_likes",
+        description = "unsubscribe chat from tiktok user video feed."
+    )]
     UnsubscribeVideo(String),
 }
 
@@ -51,17 +91,77 @@ async fn answer(
             Ok(())
         }
         Command::ShowSubscriptions => show_subscriptions(&cx, &chat_id).await,
+        Command::LastTweet(username) => {
+            last_n_data::<twitterapi::TwitterApi>(
+                &cx,
+                username,
+                1,
+                twitterapi::SubscriptionType::Tweets,
+            )
+            .await
+        }
+        Command::LastNTweets { username, n } => {
+            last_n_data::<twitterapi::TwitterApi>(
+                &cx,
+                username,
+                n,
+                twitterapi::SubscriptionType::Tweets,
+            )
+            .await
+        }
+        Command::LastLikedTweet(username) => {
+            last_n_data::<twitterapi::TwitterApi>(
+                &cx,
+                username,
+                1,
+                twitterapi::SubscriptionType::Likes,
+            )
+            .await
+        }
+        Command::LastNLikedTweet { username, n } => {
+            last_n_data::<twitterapi::TwitterApi>(
+                &cx,
+                username,
+                n,
+                twitterapi::SubscriptionType::Likes,
+            )
+            .await
+        }
         Command::LastLike(username) => {
-            last_n_videos(&cx, username, 1, tiktokapi::SubscriptionType::Likes).await
+            last_n_data::<tiktokapi::TiktokApi>(
+                &cx,
+                username,
+                1,
+                tiktokapi::SubscriptionType::Likes,
+            )
+            .await
         }
         Command::LastNLike { username, n } => {
-            last_n_videos(&cx, username, n, tiktokapi::SubscriptionType::Likes).await
+            last_n_data::<tiktokapi::TiktokApi>(
+                &cx,
+                username,
+                n,
+                tiktokapi::SubscriptionType::Likes,
+            )
+            .await
         }
         Command::LastVideo(username) => {
-            last_n_videos(&cx, username, 1, tiktokapi::SubscriptionType::CreatedVideos).await
+            last_n_data::<tiktokapi::TiktokApi>(
+                &cx,
+                username,
+                1,
+                tiktokapi::SubscriptionType::CreatedVideos,
+            )
+            .await
         }
         Command::LastNVideo { username, n } => {
-            last_n_videos(&cx, username, n, tiktokapi::SubscriptionType::CreatedVideos).await
+            last_n_data::<tiktokapi::TiktokApi>(
+                &cx,
+                username,
+                n,
+                tiktokapi::SubscriptionType::CreatedVideos,
+            )
+            .await
         }
         Command::SubscribeLikes(username) => {
             subscribe(&cx, username, &chat_id, tiktokapi::SubscriptionType::Likes).await
@@ -129,23 +229,34 @@ async fn show_subscriptions(
     Ok(())
 }
 
-async fn last_n_videos(
+async fn last_n_data<Api>(
     cx: &UpdateWithCx<AutoSend<Bot>, Message>,
     username: String,
     n: u8,
-    etype: tiktokapi::SubscriptionType,
-) -> Result<(), anyhow::Error> {
-    let api = tiktokapi::TiktokApi::from_env();
-    let user_info: tiktokapi::UserInfo = api.get_user_info(&username).await?;
-    let liked_videos = api.get_content(&username, n, etype).await?;
+    etype: Api::ContentType,
+) -> Result<(), anyhow::Error>
+where
+    Api: ApiContentReceiver + ApiUserInfoReceiver + FromEnv<Api>,
+    <Api as ApiContentReceiver>::Out: ReturnDataForDownload + ReturnTextInfo,
+    <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
+    <Api as ApiContentReceiver>::ContentType: Copy
+        + GenerateSubscriptionMessage<
+            <Api as ApiUserInfoReceiver>::Out,
+            <Api as ApiContentReceiver>::Out,
+        >,
+{
+    let api = Api::from_env();
+    let user_info = api.get_user_info(&username).await?;
+    let mut data = api.get_content(&user_info.id(), n, etype).await?;
+    data.truncate(n as usize);
     let mut succeed = true;
-    download_videos(&liked_videos).await;
-    for video in liked_videos {
-        send_video(
+    download_content(&data).await;
+    for i in data {
+        send_content(
             &cx.requester,
             &user_info,
             &cx.update.chat.id.to_string(),
-            &video,
+            &i,
             etype,
         )
         .await

@@ -1,4 +1,4 @@
-use crate::api::{ApiContentReceiver, ApiUserInfoReceiver};
+use crate::api::{ApiContentReceiver, ApiUserInfoReceiver, FromEnv};
 use crate::database::tiktok::DatabaseApi;
 
 use teloxide::prelude::*;
@@ -43,7 +43,7 @@ async fn tiktok_updates_monitor_run(
             let chats = chats.as_ref().unwrap();
             log::info!("User {} processing started.", &user.tiktok_username);
             let videos = get_videos_to_send(&db, &user.tiktok_username, stype).await?;
-            download_videos(&videos).await;
+            download_content(&videos).await;
             for video in videos {
                 let mut succeed = false;
                 for chat in chats {
@@ -53,7 +53,7 @@ async fn tiktok_updates_monitor_run(
                         chat
                     );
                     let tiktok_info = api.get_user_info(&user.tiktok_username).await?;
-                    match send_video(&bot, &tiktok_info, chat, &video, stype).await {
+                    match send_content(&bot, &tiktok_info, chat, &video, stype).await {
                         Ok(_) => succeed = true,
                         Err(e) => log::error!(
                             "Error happened during sending video to {} with below error:\n{}",

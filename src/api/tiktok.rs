@@ -2,7 +2,10 @@ use reqwest;
 
 use std::env;
 
-use crate::api::{ApiContentReceiver, ApiUserInfoReceiver};
+use crate::api::{
+    ApiContentReceiver, ApiUserInfoReceiver, DataForDownload, DataType,
+    GenerateSubscriptionMessage, ReturnDataForDownload, ReturnTextInfo, ReturnUserInfo,
+};
 use anyhow;
 use async_trait::async_trait;
 use serde::{self, Deserialize};
@@ -16,6 +19,18 @@ pub(crate) struct UserInfo {
     pub(crate) nickname: String,
 }
 
+impl ReturnUserInfo for UserInfo {
+    fn id(&self) -> &str {
+        &self.unique_user_id
+    }
+    fn username(&self) -> &str {
+        &self.unique_user_id
+    }
+    fn nickname(&self) -> &str {
+        &self.nickname
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct Video {
     pub(crate) id: String,
@@ -23,6 +38,25 @@ pub(crate) struct Video {
     pub(crate) nickname: String,
     pub(crate) download_address: String,
     pub(crate) description: String,
+}
+
+impl ReturnTextInfo for Video {
+    fn text_info(&self) -> &str {
+        &self.description
+    }
+}
+
+impl ReturnDataForDownload for Video {
+    fn is_data_for_download(&self) -> bool {
+        true
+    }
+    fn data(&self) -> Vec<DataForDownload> {
+        vec![DataForDownload {
+            url: self.download_address.clone(),
+            name: self.id.clone(),
+            data_type: DataType::Video,
+        }]
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -46,19 +80,31 @@ impl SubscriptionType {
     }
 }
 
+impl GenerateSubscriptionMessage<UserInfo, Video> for SubscriptionType {
+    fn subscription_message(&self, user_info: &UserInfo, video: &Video) -> String {
+        match *self {
+            SubscriptionType::Likes => format!(
+                "User {} aka {} liked video from {} aka {}.\n\nDescription:\n{}",
+                user_info.unique_user_id,
+                user_info.nickname,
+                video.unique_user_id,
+                video.nickname,
+                video.description
+            ),
+            SubscriptionType::CreatedVideos => format!(
+                "User {} aka {} posted video.\n\nDescription:\n{}",
+                video.unique_user_id, video.nickname, video.description
+            ),
+        }
+    }
+}
+
 pub(crate) struct TiktokApi {
     secret: String,
     tiktok_domain: String,
 }
 
 impl TiktokApi {
-    pub(crate) fn from_env() -> TiktokApi {
-        TiktokApi {
-            secret: env::var("TIKTOK_API_SECRET").unwrap_or("blahblah".to_string()),
-            tiktok_domain: env::var("TIKTOK_URL").unwrap_or("localhost:3000".to_string()),
-        }
-    }
-
     fn create_query(&self, api_name: &str, id: &str, count: u8) -> String {
         format!(
             "{}/api/{}/?username={}&count={}&key={}",
@@ -83,8 +129,19 @@ impl TiktokApi {
     }
 }
 
+impl super::FromEnv<TiktokApi> for TiktokApi {
+    fn from_env() -> TiktokApi {
+        TiktokApi {
+            secret: env::var("TIKTOK_API_SECRET").unwrap_or("blahblah".to_string()),
+            tiktok_domain: env::var("TIKTOK_URL").unwrap_or("localhost:3000".to_string()),
+        }
+    }
+}
+
 #[async_trait]
-impl ApiContentReceiver<SubscriptionType, Video> for TiktokApi {
+impl ApiContentReceiver for TiktokApi {
+    type Out = Video;
+    type ContentType = SubscriptionType;
     async fn get_content(
         &self,
         id: &str,
@@ -96,7 +153,8 @@ impl ApiContentReceiver<SubscriptionType, Video> for TiktokApi {
 }
 
 #[async_trait]
-impl ApiUserInfoReceiver<UserInfo> for TiktokApi {
+impl ApiUserInfoReceiver for TiktokApi {
+    type Out = UserInfo;
     async fn get_user_info(&self, id: &str) -> Result<UserInfo, anyhow::Error> {
         // Count parameter would be ignored by server
         let response = reqwest::get(self.create_query("user_info", id, 0)).await?;

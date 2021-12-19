@@ -9,7 +9,7 @@ mod processing;
 #[tokio::main]
 async fn main() {
     teloxide::enable_logging!();
-    if let Err(e) = fs::create_dir_all("videos") {
+    if let Err(e) = fs::create_dir_all("content") {
         log::error!("Error: couldn't create videos directory.\n{}", e);
         return;
     }
