@@ -1,0 +1,31 @@
+version: '3'
+networks:
+  net:
+    driver: bridge
+services:
+  tiktok-api-server:
+    build: tiktok-api-server
+    restart: unless-stopped
+    environment:
+      - COOKIE=${COOKIE}
+      - SECRET_KEY=${TIKTOK_API_SECRET}
+    networks:
+      - net
+  tiktonick-bot:
+    build: .
+    restart: unless-stopped
+    environment:
+      - TELOXIDE_TOKEN=${TELOXIDE_TOKEN}
+      - TIKTOK_API_SECRET=${TIKTOK_API_SECRET}
+      - TIKTONICK_DB_NAME=${TIKTONICK_DB_NAME}
+      - TIKTONICK_MONGO_CON_STRING=${TIKTONICK_MONGO_CON_STRING}
+      - TIKTOK_URL=http://tiktok-api-server:5000/
+      - TWITTER_API_BEARER_SECRET=${TWITTER_API_BEARER_SECRET}
+      - TWITTER_API_URL=https://api.twitter.com
+    networks:
+      - net
+  restarter:
+    image: docker
+    volumes: [ "/var/run/docker.sock:/var/run/docker.sock" ]
+    command: [ "/bin/sh", "-c", "while true; do sleep 86400; docker restart tiktonick-bot_tiktonick-bot_1; done" ]
+    restart: unless-stopped
