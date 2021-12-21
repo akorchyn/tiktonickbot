@@ -1,6 +1,6 @@
-/target
-/content
-/.idea
+**/target
+**/content
+**/.idea
 **/__pycache__
 **/env
 .env

@@ -13,7 +13,7 @@ services:
     networks:
       - net
   tiktonick-bot:
-    build: .
+    build: tiktonick-bot
     restart: always
     environment:
       - TELOXIDE_TOKEN=${TELOXIDE_TOKEN}

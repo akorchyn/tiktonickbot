@@ -2493,8 +2493,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "tiktok-bot"
-version = "0.1.0"
+name = "tiktonick-bot"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
