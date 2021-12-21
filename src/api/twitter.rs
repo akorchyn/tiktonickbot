@@ -10,6 +10,8 @@ use anyhow;
 use async_trait::async_trait;
 use serde::{self, Deserialize};
 use serde_json;
+use teloxide::types::ParseMode;
+use teloxide::types::ParseMode::Html;
 
 #[derive(Debug, Deserialize, Default)]
 pub(crate) struct UserInfo {
@@ -91,14 +93,18 @@ impl GenerateSubscriptionMessage<UserInfo, Tweet> for SubscriptionType {
     fn subscription_message(&self, user: &UserInfo, tweet: &Tweet) -> String {
         match *self {
             SubscriptionType::Likes => format!(
-                "User {} aka {} liked tweet from {} aka {}.\n\nTweet:\n{}",
+                "<i><a href=\"https://www.twitter.com/{}\">{}</a> liked tweet from <a href=\"https://www.twitter.com/{}\">{}</a>:</i>\n\n{}",
                 user.username, user.name, tweet.username, tweet.name, tweet.text
             ),
             SubscriptionType::Tweets => format!(
-                "User {} aka {} tweet:\n{}",
+                "<i><a href=\"https://www.twitter.com/{}\">{}</a> tweet:</i>\n\n{}",
                 tweet.username, tweet.name, tweet.text
             ),
         }
+    }
+
+    fn subscription_format(&self) -> Option<ParseMode> {
+        Some(Html)
     }
 }
 

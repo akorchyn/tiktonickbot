@@ -97,6 +97,9 @@ impl GenerateSubscriptionMessage<UserInfo, Video> for SubscriptionType {
             ),
         }
     }
+    fn subscription_format(&self) -> Option<super::ParseMode> {
+        None
+    }
 }
 
 pub(crate) struct TiktokApi {

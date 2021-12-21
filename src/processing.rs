@@ -4,7 +4,7 @@ pub(crate) mod updater;
 use futures::future::join_all;
 use futures::FutureExt;
 use teloxide::prelude::*;
-use teloxide::types::{InputFile, InputMedia, InputMediaPhoto, InputMediaVideo};
+use teloxide::types::{InputFile, InputMedia, InputMediaPhoto, InputMediaVideo, ParseMode};
 
 use std::env;
 use std::fs::File;
@@ -41,8 +41,13 @@ where
 {
     let chat_id: i64 = chat_id.parse().unwrap();
     if !content.is_data_for_download() {
-        bot.send_message(chat_id, stype.subscription_message(&user_info, &content))
-            .await?;
+        if let Some(v) = stype.subscription_format() {
+            bot.send_message(chat_id, stype.subscription_message(&user_info, &content))
+                .parse_mode(v)
+                .await?;
+        } else {
+            bot.send_message(chat_id, stype.subscription_message(&user_info, &content));
+        }
     } else {
         let media: Vec<InputMedia> = content
             .data()
@@ -51,14 +56,24 @@ where
                 let filename = format!("content/{}.{}", item.name, item.data_type.to_extension());
                 let input_file = InputFile::File(Path::new(&filename).to_path_buf());
                 match item.data_type {
-                    crate::api::DataType::Image => InputMedia::Photo(
-                        InputMediaPhoto::new(input_file)
-                            .caption(stype.subscription_message(&user_info, &content)),
-                    ),
-                    crate::api::DataType::Video => InputMedia::Video(
-                        InputMediaVideo::new(input_file)
-                            .caption(stype.subscription_message(&user_info, &content)),
-                    ),
+                    crate::api::DataType::Image => {
+                        let input = InputMediaPhoto::new(input_file)
+                            .caption(stype.subscription_message(&user_info, &content));
+                        InputMedia::Photo(if let Some(v) = stype.subscription_format() {
+                            input.parse_mode(v)
+                        } else {
+                            input
+                        })
+                    }
+                    crate::api::DataType::Video => {
+                        let input = InputMediaVideo::new(input_file)
+                            .caption(stype.subscription_message(&user_info, &content));
+                        InputMedia::Video(if let Some(v) = stype.subscription_format() {
+                            input.parse_mode(v)
+                        } else {
+                            input
+                        })
+                    }
                 }
             })
             .collect();

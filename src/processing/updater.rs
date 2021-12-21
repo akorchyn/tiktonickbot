@@ -41,6 +41,9 @@ async fn tiktok_updates_monitor_run(
                 continue;
             }
             let chats = chats.as_ref().unwrap();
+            if chats.is_empty() {
+                continue;
+            }
             log::info!("User {} processing started.", &user.tiktok_username);
             let videos = get_videos_to_send(&db, &user.tiktok_username, stype).await?;
             download_content(&videos).await;

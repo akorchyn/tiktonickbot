@@ -190,7 +190,7 @@ async fn answer(
     };
     log::info!("Command handling finished");
     if let Err(e) = &status {
-        if let Err(_) = cx.answer("Unfortunately, you request failed. Please, check input data corectness. If you are sure that your input is correct. Try again later").await {
+        if let Err(_) = cx.reply_to("Unfortunately, you request failed. Please, check input data correctness. If you are sure that your input is correct. Try again later").await {
             log::info!("Failed to respond to user with error message.\nInitial error: {}", e.to_string());
         }
     }

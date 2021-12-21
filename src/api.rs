@@ -5,6 +5,8 @@ use anyhow;
 use async_trait::async_trait;
 use serde::Deserialize;
 
+use teloxide::types::ParseMode;
+
 #[async_trait]
 pub(crate) trait ApiUserInfoReceiver {
     type Out;
@@ -67,4 +69,5 @@ pub(crate) trait ReturnTextInfo {
 
 pub(crate) trait GenerateSubscriptionMessage<UserInfo, Content> {
     fn subscription_message(&self, user_info: &UserInfo, content: &Content) -> String;
+    fn subscription_format(&self) -> Option<ParseMode>;
 }
