@@ -4,18 +4,18 @@ pub(crate) mod updater;
 use futures::future::join_all;
 use futures::FutureExt;
 use teloxide::prelude::*;
-use teloxide::types::{InputFile, InputMedia, InputMediaPhoto, InputMediaVideo, ParseMode};
+use teloxide::types::{InputFile, InputMedia, InputMediaPhoto, InputMediaVideo};
 
 use std::env;
 use std::fs::File;
 use std::io;
 use std::path::Path;
 
+use crate::api::ReturnDataForDownload;
 use crate::api::{
     tiktok as tiktokapi, DataForDownload, GenerateSubscriptionMessage, ReturnTextInfo,
     ReturnUserInfo,
 };
-use crate::api::{twitter as twitterapi, ReturnDataForDownload};
 use crate::database::{tiktok as tiktokdb, MongoDatabase};
 
 async fn create_db() -> Result<MongoDatabase, anyhow::Error> {

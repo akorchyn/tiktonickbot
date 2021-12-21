@@ -1,7 +1,8 @@
 use teloxide::{prelude::*, utils::command::BotCommand};
 
-use super::*;
-use crate::api::{ApiContentReceiver, ApiUserInfoReceiver, FromEnv};
+use crate::api::tiktok::{SubscriptionType as TiktokSub, TiktokApi};
+use crate::api::twitter::{SubscriptionType as TwitterSub, TwitterApi};
+use crate::api::*;
 use crate::database::tiktok::DatabaseApi;
 
 #[derive(BotCommand)]
@@ -73,6 +74,8 @@ enum Command {
         description = "unsubscribe chat from tiktok user video feed."
     )]
     UnsubscribeVideo(String),
+    #[command(description = "off")]
+    SetNewCookie(String),
 }
 
 pub(crate) async fn run(bot: AutoSend<Bot>, bot_name: String) {
@@ -92,100 +95,53 @@ async fn answer(
         }
         Command::ShowSubscriptions => show_subscriptions(&cx, &chat_id).await,
         Command::LastTweet(username) => {
-            last_n_data::<twitterapi::TwitterApi>(
-                &cx,
-                username,
-                1,
-                twitterapi::SubscriptionType::Tweets,
-            )
-            .await
+            last_n_data::<TwitterApi>(&cx, username, 1, TwitterSub::Tweets).await
         }
         Command::LastNTweets { username, n } => {
-            last_n_data::<twitterapi::TwitterApi>(
-                &cx,
-                username,
-                n,
-                twitterapi::SubscriptionType::Tweets,
-            )
-            .await
+            last_n_data::<TwitterApi>(&cx, username, n, TwitterSub::Tweets).await
         }
         Command::LastLikedTweet(username) => {
-            last_n_data::<twitterapi::TwitterApi>(
-                &cx,
-                username,
-                1,
-                twitterapi::SubscriptionType::Likes,
-            )
-            .await
+            last_n_data::<TwitterApi>(&cx, username, 1, TwitterSub::Likes).await
         }
         Command::LastNLikedTweet { username, n } => {
-            last_n_data::<twitterapi::TwitterApi>(
-                &cx,
-                username,
-                n,
-                twitterapi::SubscriptionType::Likes,
-            )
-            .await
+            last_n_data::<TwitterApi>(&cx, username, n, TwitterSub::Likes).await
         }
         Command::LastLike(username) => {
-            last_n_data::<tiktokapi::TiktokApi>(
-                &cx,
-                username,
-                1,
-                tiktokapi::SubscriptionType::Likes,
-            )
-            .await
+            last_n_data::<TiktokApi>(&cx, username, 1, TiktokSub::Likes).await
         }
         Command::LastNLike { username, n } => {
-            last_n_data::<tiktokapi::TiktokApi>(
-                &cx,
-                username,
-                n,
-                tiktokapi::SubscriptionType::Likes,
-            )
-            .await
+            last_n_data::<TiktokApi>(&cx, username, n, TiktokSub::Likes).await
         }
         Command::LastVideo(username) => {
-            last_n_data::<tiktokapi::TiktokApi>(
-                &cx,
-                username,
-                1,
-                tiktokapi::SubscriptionType::CreatedVideos,
-            )
-            .await
+            last_n_data::<TiktokApi>(&cx, username, 1, TiktokSub::CreatedVideos).await
         }
         Command::LastNVideo { username, n } => {
-            last_n_data::<tiktokapi::TiktokApi>(
-                &cx,
-                username,
-                n,
-                tiktokapi::SubscriptionType::CreatedVideos,
-            )
-            .await
+            last_n_data::<TiktokApi>(&cx, username, n, TiktokSub::CreatedVideos).await
         }
         Command::SubscribeLikes(username) => {
-            subscribe(&cx, username, &chat_id, tiktokapi::SubscriptionType::Likes).await
+            subscribe(&cx, username, &chat_id, TiktokSub::Likes).await
         }
         Command::SubscribeVideo(username) => {
-            subscribe(
-                &cx,
-                username,
-                &chat_id,
-                tiktokapi::SubscriptionType::CreatedVideos,
-            )
-            .await
+            subscribe(&cx, username, &chat_id, TiktokSub::CreatedVideos).await
         }
         Command::UnsubscribeLikes(username) => {
-            unsubscribe(&cx, username, &chat_id, tiktokapi::SubscriptionType::Likes).await
+            unsubscribe(&cx, username, &chat_id, TiktokSub::Likes).await
         }
         Command::UnsubscribeVideo(username) => {
-            unsubscribe(
-                &cx,
-                username,
-                &chat_id,
-                tiktokapi::SubscriptionType::CreatedVideos,
-            )
-            .await
+            unsubscribe(&cx, username, &chat_id, TiktokSub::CreatedVideos).await
+        }
+        Command::SetNewCookie(cookie) => {
+            log::info!("Sending new cookie to the api: {}", cookie);
+            if let Some(user) = cx.update.from() {
+                let admin_id: String = std::env::var("TELEGRAM_ADMIN_ID").unwrap();
+                if user.id.to_string() == admin_id {
+                    TiktokApi::from_env().send_api_new_cookie(cookie).await?;
+                    cx.answer("Succeed").await?;
+                } else {
+                    cx.answer("Not authorized").await?;
+                }
+            }
+            Ok(())
         }
     };
     log::info!("Command handling finished");
@@ -201,7 +157,7 @@ async fn show_subscriptions(
     cx: &UpdateWithCx<AutoSend<Bot>, Message>,
     chat_id: &str,
 ) -> Result<(), anyhow::Error> {
-    let db = create_db().await?;
+    let db = super::create_db().await?;
 
     let chat = db.get_chat_info(chat_id).await?;
     let empty_text = "Currently, group doesn't have any subscriptions";
@@ -250,9 +206,9 @@ where
     let mut data = api.get_content(&user_info.id(), n, etype).await?;
     data.truncate(n as usize);
     let mut succeed = true;
-    download_content(&data).await;
+    super::download_content(&data).await;
     for i in data {
-        send_content(
+        super::send_content(
             &cx.requester,
             &user_info,
             &cx.update.chat.id.to_string(),
@@ -276,16 +232,16 @@ async fn subscribe(
     cx: &UpdateWithCx<AutoSend<Bot>, Message>,
     username: String,
     chat_id: &str,
-    stype: tiktokdb::SubscriptionType,
+    stype: TiktokSub,
 ) -> Result<(), anyhow::Error> {
-    let db = create_db().await?;
+    let db = super::create_db().await?;
 
     if db.is_user_subscribed(&username, chat_id, stype).await? {
         cx.answer(format!("You already subscribed to {}", &username))
             .await?;
         Ok(())
     } else {
-        let api = tiktokapi::TiktokApi::from_env();
+        let api = TiktokApi::from_env();
         let user_info = api.get_user_info(&username).await?;
         let likes = api.get_content(&username, 5, stype).await?;
         for like in likes {
@@ -306,9 +262,9 @@ async fn unsubscribe(
     cx: &UpdateWithCx<AutoSend<Bot>, Message>,
     username: String,
     chat_id: &str,
-    stype: tiktokdb::SubscriptionType,
+    stype: TiktokSub,
 ) -> Result<(), anyhow::Error> {
-    let db = create_db().await?;
+    let db = super::create_db().await?;
 
     if !db.is_user_subscribed(&username, chat_id, stype).await? {
         cx.answer(format!("You were not subscribed to {}", &username))

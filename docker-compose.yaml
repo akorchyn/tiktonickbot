@@ -5,7 +5,7 @@ networks:
 services:
   tiktok-api-server:
     build: tiktok-api-server
-    restart: unless-stopped
+    restart: always
     environment:
       - COOKIE=${COOKIE}
       - SECRET_KEY=${TIKTOK_API_SECRET}
@@ -14,7 +14,7 @@ services:
       - net
   tiktonick-bot:
     build: .
-    restart: unless-stopped
+    restart: always
     environment:
       - TELOXIDE_TOKEN=${TELOXIDE_TOKEN}
       - TIKTOK_API_SECRET=${TIKTOK_API_SECRET}
@@ -25,8 +25,3 @@ services:
       - TWITTER_API_URL=https://api.twitter.com
     networks:
       - net
-  restarter:
-    image: docker
-    volumes: [ "/var/run/docker.sock:/var/run/docker.sock" ]
-    command: [ "/bin/sh", "-c", "while true; do sleep 86400; docker restart tiktok-bot_tiktonick-bot_1; docker restart tiktok-bot_tiktok-api-server_1; done" ]
-    restart: unless-stopped

@@ -130,6 +130,35 @@ impl TiktokApi {
             })
             .collect())
     }
+
+    pub(crate) async fn check_alive(&self) -> bool {
+        reqwest::get(format!(
+            "{}/api/status?key={}",
+            self.tiktok_domain, self.secret
+        ))
+        .await
+        .and_then(|response| Ok(response.status() == 200))
+        .unwrap_or(false)
+    }
+
+    pub(crate) async fn send_api_new_cookie(&self, cookie: String) -> Result<(), anyhow::Error> {
+        let client = reqwest::Client::new();
+        client
+            .post(format!(
+                "{}/api/new_cookie?key={}",
+                self.tiktok_domain, self.secret
+            ))
+            .form(&[("cookie", &cookie)])
+            .send()
+            .await?;
+        if self.check_alive().await {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "Failed to set a cookie or cookie is invalid"
+            ))
+        }
+    }
 }
 
 impl super::FromEnv<TiktokApi> for TiktokApi {

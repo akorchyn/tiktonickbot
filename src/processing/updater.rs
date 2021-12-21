@@ -3,6 +3,7 @@ use crate::database::tiktok::DatabaseApi;
 
 use teloxide::prelude::*;
 
+use crate::api::tiktok::TiktokApi;
 use futures::future::join_all;
 
 use super::*;
@@ -12,29 +13,50 @@ pub(crate) async fn run(bot: AutoSend<Bot>) {
         .await
         .expect("Expected successful connection to DB");
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(120));
+    let api = TiktokApi::from_env();
+    let admin_id: i64 = std::env::var("TELEGRAM_ADMIN_ID").unwrap().parse().unwrap();
 
     loop {
         interval.tick().await;
         log::info!("Started updating TikTok feeds");
-        tiktok_updates_monitor_run(&bot, &db)
-            .await
-            .unwrap_or_else(|e| {
-                log::error!("Tiktok update run failed with an error: {}", e);
-            });
-        log::info!("Finished updating TikTok feeds");
+        if api.check_alive().await {
+            tiktok_updates_monitor_run(&bot, &api, &db)
+                .await
+                .unwrap_or_else(|e| {
+                    log::error!("Tiktok update run failed with an error: {}", e);
+                });
+            log::info!("Finished updating TikTok feeds");
+        } else {
+            log::info!("Tiktok api is dead");
+            match bot
+                .send_message(
+                    admin_id,
+                    "Unfortunately, Tiktok api doesn't responds. Please, take care of it"
+                        .to_string(),
+                )
+                .disable_notification(true)
+                .await
+            {
+                Err(_) => {
+                    log::error!("Failed to send message to the admin about hanging api.")
+                }
+                _ => (),
+            }
+        }
     }
 }
 
 async fn tiktok_updates_monitor_run(
     bot: &AutoSend<Bot>,
+    api: &TiktokApi,
     db: &MongoDatabase,
 ) -> Result<(), anyhow::Error> {
     let users = db.get_collection::<tiktokdb::User>().await?;
-    let api = tiktokapi::TiktokApi::from_env();
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
 
     for user in users {
         interval.tick().await;
+
         for stype in tiktokdb::SubscriptionType::iterator() {
             let chats = user.get_chats_by_subscription_type(stype);
             if chats.is_none() {
