@@ -23,5 +23,6 @@ services:
       - TIKTOK_URL=http://tiktok-api-server:5000/
       - TWITTER_API_BEARER_SECRET=${TWITTER_API_BEARER_SECRET}
       - TWITTER_API_URL=https://api.twitter.com
+      - TELEGRAM_ADMIN_ID=${TELEGRAM_ADMIN_ID}
     networks:
       - net

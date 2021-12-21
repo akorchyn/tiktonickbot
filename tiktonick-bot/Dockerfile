@@ -16,7 +16,8 @@ COPY . .
 RUN cargo build --release
 
 # We do not need the Rust toolchain to run the binary!
-FROM debian:bullseye-slim AS runtime
+FROM debian:latest AS runtime
 WORKDIR app
 COPY --from=builder /app/target/release/tiktonick-bot /usr/local/bin
+RUN apt update -y && apt install -y ca-certificates
 ENTRYPOINT ["/usr/local/bin/tiktonick-bot"]
