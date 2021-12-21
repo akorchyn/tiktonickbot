@@ -207,7 +207,7 @@ where
     data.truncate(n as usize);
     let mut succeed = true;
     super::download_content(&data).await;
-    for i in data {
+    for i in data.into_iter().rev() {
         super::send_content(
             &cx.requester,
             &user_info,

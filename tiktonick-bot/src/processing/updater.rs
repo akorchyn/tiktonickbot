@@ -69,7 +69,7 @@ async fn tiktok_updates_monitor_run(
             log::info!("User {} processing started.", &user.tiktok_username);
             let videos = get_videos_to_send(&db, &user.tiktok_username, stype).await?;
             download_content(&videos).await;
-            for video in videos {
+            for video in videos.into_iter().rev() {
                 let mut succeed = false;
                 for chat in chats {
                     log::info!(
