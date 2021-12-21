@@ -9,6 +9,7 @@ services:
     environment:
       - COOKIE=${COOKIE}
       - SECRET_KEY=${TIKTOK_API_SECRET}
+      - PORT=5000
     networks:
       - net
   tiktonick-bot:
@@ -17,8 +18,8 @@ services:
     environment:
       - TELOXIDE_TOKEN=${TELOXIDE_TOKEN}
       - TIKTOK_API_SECRET=${TIKTOK_API_SECRET}
-      - TIKTONICK_DB_NAME=${TIKTONICK_DB_NAME}
-      - TIKTONICK_MONGO_CON_STRING=${TIKTONICK_MONGO_CON_STRING}
+      - TIKTOK_BOT_DATABASE_NAME=${TIKTONICK_DB_NAME}
+      - TIKTOK_BOT_MONGO_CON_STRING=${TIKTONICK_MONGO_CON_STRING}
       - TIKTOK_URL=http://tiktok-api-server:5000/
       - TWITTER_API_BEARER_SECRET=${TWITTER_API_BEARER_SECRET}
       - TWITTER_API_URL=https://api.twitter.com
@@ -27,5 +28,5 @@ services:
   restarter:
     image: docker
     volumes: [ "/var/run/docker.sock:/var/run/docker.sock" ]
-    command: [ "/bin/sh", "-c", "while true; do sleep 86400; docker restart tiktonick-bot_tiktonick-bot_1; done" ]
+    command: [ "/bin/sh", "-c", "while true; do sleep 86400; docker restart tiktok-bot_tiktonick-bot_1; docker restart tiktok-bot_tiktok-api-server_1; done" ]
     restart: unless-stopped
