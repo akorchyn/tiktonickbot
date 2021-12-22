@@ -41,42 +41,50 @@ where
 {
     let chat_id: i64 = chat_id.parse().unwrap();
     if !content.is_data_for_download() {
-        if let Some(v) = stype.subscription_format() {
+        (if let Some(v) = stype.subscription_format() {
             bot.send_message(chat_id, stype.subscription_message(&user_info, &content))
                 .parse_mode(v)
-                .await?;
         } else {
-            bot.send_message(chat_id, stype.subscription_message(&user_info, &content));
-        }
+            bot.send_message(chat_id, stype.subscription_message(&user_info, &content))
+        })
+        .disable_web_page_preview(true)
+        .await?;
     } else {
+        let mut is_first = true;
         let media: Vec<InputMedia> = content
             .data()
             .into_iter()
             .map(|item| {
                 let filename = format!("content/{}.{}", item.name, item.data_type.to_extension());
-                let input_file = InputFile::File(Path::new(&filename).to_path_buf());
+                let media = InputFile::File(Path::new(&filename).to_path_buf());
+                let caption = if is_first {
+                    is_first = false;
+                    Some(stype.subscription_message(&user_info, &content))
+                } else {
+                    None
+                };
                 match item.data_type {
-                    crate::api::DataType::Image => {
-                        let input = InputMediaPhoto::new(input_file)
-                            .caption(stype.subscription_message(&user_info, &content));
-                        InputMedia::Photo(if let Some(v) = stype.subscription_format() {
-                            input.parse_mode(v)
-                        } else {
-                            input
-                        })
-                    }
-                    crate::api::DataType::Video => {
-                        let input = InputMediaVideo::new(input_file)
-                            .caption(stype.subscription_message(&user_info, &content));
-                        InputMedia::Video(if let Some(v) = stype.subscription_format() {
-                            input.parse_mode(v)
-                        } else {
-                            input
-                        })
-                    }
+                    crate::api::DataType::Image => InputMedia::Photo(InputMediaPhoto {
+                        media,
+                        caption,
+                        parse_mode: stype.subscription_format(),
+                        caption_entities: None,
+                    }),
+                    crate::api::DataType::Video => InputMedia::Video(InputMediaVideo {
+                        media,
+                        thumb: None,
+                        caption,
+                        parse_mode: stype.subscription_format(),
+                        caption_entities: None,
+                        width: None,
+                        height: None,
+                        duration: None,
+                        supports_streaming: None,
+                    }),
                 }
             })
             .collect();
+        println!("{}", stype.subscription_message(&user_info, &content));
         bot.send_media_group(chat_id, media).await?;
     }
     Ok(())
