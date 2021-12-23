@@ -309,8 +309,7 @@ where
         let user_info = api.get_user_info(&username).await?;
         let content = api.get_content(&user_info.id(), 5, stype).await?;
         for item in content {
-            db.add_content::<Api>(&item.id(), &user_info.id(), stype)
-                .await?;
+            db.add_content::<Api>(&item.id(), &username, stype).await?;
         }
         db.subscribe_user::<Api>(&user_info.username(), &chat_id, stype)
             .await?;

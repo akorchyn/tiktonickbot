@@ -87,7 +87,12 @@ where
             }
             let user_info = api.get_user_info(&user.id).await?;
             log::info!("{}: User {} processing started.", Api::name(), &user.id);
-            let content = get_content_to_send::<Api>(&db, api, &user_info.id(), stype).await?;
+            let content = api.get_content(&user_info.id(), 5, stype).await?;
+            log::info!("{}: Received user {} data", Api::name(), &user.id);
+            let content = filter_sent_videos::<Api, <Api as ApiContentReceiver>::Out>(
+                db, content, &user.id, stype,
+            )
+            .await;
             download_content(&content).await;
             for element in content.into_iter().rev() {
                 let mut succeed = false;
@@ -143,22 +148,4 @@ async fn filter_sent_videos<Api: DatabaseInfoProvider, T: GetId>(
         .filter(|(_, f)| !*f)
         .map(|(v, _)| v)
         .collect::<Vec<_>>()
-}
-
-async fn get_content_to_send<Api>(
-    db: &MongoDatabase,
-    api: &Api,
-    username: &str,
-    stype: SubscriptionType,
-) -> Result<Vec<<Api as ApiContentReceiver>::Out>, anyhow::Error>
-where
-    Api: ApiContentReceiver + ApiName + DatabaseInfoProvider,
-    <Api as ApiContentReceiver>::Out: GetId,
-{
-    let likes = api.get_content(&username, 5, stype).await?;
-    log::info!("{}: Received user {} data", Api::name(), &username);
-    Ok(
-        filter_sent_videos::<Api, <Api as ApiContentReceiver>::Out>(db, likes, &username, stype)
-            .await,
-    )
 }
