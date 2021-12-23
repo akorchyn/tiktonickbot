@@ -197,7 +197,7 @@ async fn get_subscription_string_for_api<Api: DatabaseInfoProvider + ApiName>(
             result + &format!("@{} - Content-type subscription\n", i)
         });
         let like_subscribers = likes.into_iter().fold(String::new(), |result, i| {
-            result + &format!("@{} - Like-type subscription", i)
+            result + &format!("@{} - Like-type subscription\n", i)
         });
         if !content_subscribers.is_empty() || !like_subscribers.is_empty() {
             Ok(format!(
