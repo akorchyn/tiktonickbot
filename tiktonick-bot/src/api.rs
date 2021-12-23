@@ -7,6 +7,28 @@ use serde::Deserialize;
 
 use teloxide::types::ParseMode;
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub(crate) enum SubscriptionType {
+    Likes,
+    Content,
+}
+
+impl SubscriptionType {
+    pub(crate) fn iterator() -> impl Iterator<Item = SubscriptionType> {
+        [SubscriptionType::Content, SubscriptionType::Likes]
+            .iter()
+            .copied()
+    }
+}
+
+pub(crate) trait ApiName {
+    fn name() -> &'static str;
+}
+
+pub(crate) trait GetId {
+    fn id(&self) -> &str;
+}
+
 #[async_trait]
 pub(crate) trait ApiUserInfoReceiver {
     type Out;
@@ -16,13 +38,11 @@ pub(crate) trait ApiUserInfoReceiver {
 #[async_trait]
 pub(crate) trait ApiContentReceiver {
     type Out;
-    type ContentType;
-
     async fn get_content(
         &self,
         id: &str,
         count: u8,
-        etype: Self::ContentType,
+        etype: SubscriptionType,
     ) -> Result<Vec<Self::Out>, anyhow::Error>;
 }
 
@@ -68,6 +88,16 @@ pub(crate) trait ReturnTextInfo {
 }
 
 pub(crate) trait GenerateSubscriptionMessage<UserInfo, Content> {
-    fn subscription_message(&self, user_info: &UserInfo, content: &Content) -> String;
-    fn subscription_format(&self) -> Option<ParseMode>;
+    fn subscription_message(
+        user_info: &UserInfo,
+        content: &Content,
+        stype: SubscriptionType,
+    ) -> String;
+    fn subscription_format() -> Option<ParseMode>;
+}
+
+pub(crate) trait DatabaseInfoProvider {
+    fn user_collection_name() -> &'static str;
+    fn chat_collection_name() -> &'static str;
+    fn content_collection_name() -> &'static str;
 }

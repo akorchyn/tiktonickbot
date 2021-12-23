@@ -1,9 +1,9 @@
 use teloxide::{prelude::*, utils::command::BotCommand};
 
-use crate::api::tiktok::{SubscriptionType as TiktokSub, TiktokApi};
-use crate::api::twitter::{SubscriptionType as TwitterSub, TwitterApi};
+use crate::api::tiktok::TiktokApi;
+use crate::api::twitter::TwitterApi;
 use crate::api::*;
-use crate::database::tiktok::DatabaseApi;
+use crate::database::MongoDatabase;
 
 #[derive(BotCommand)]
 #[command(rename = "lowercase", description = "These commands are supported:")]
@@ -58,22 +58,42 @@ enum Command {
         rename = "sub_tiktok_likes",
         description = "subscribe chat to tiktok user likes feed."
     )]
-    SubscribeLikes(String),
+    TiktokSubscribeLikes(String),
     #[command(
         rename = "sub_tiktok",
         description = "subscribe chat to tiktok user likes feed."
     )]
-    SubscribeVideo(String),
+    TiktokSubscribeVideo(String),
     #[command(
         rename = "unsub_tiktok_likes",
         description = "unsubscribe chat from tiktok user video feed."
     )]
-    UnsubscribeLikes(String),
+    TiktokUnsubscribeLikes(String),
     #[command(
         rename = "unsub_tiktok_likes",
         description = "unsubscribe chat from tiktok user video feed."
     )]
-    UnsubscribeVideo(String),
+    TiktokUnsubscribeVideo(String),
+    #[command(
+        rename = "sub_twitter_likes",
+        description = "subscribe chat to tiktok user likes feed."
+    )]
+    TwitterSubscribeLikes(String),
+    #[command(
+        rename = "sub_twitter",
+        description = "subscribe chat to tiktok user likes feed."
+    )]
+    TwitterSubscribeVideo(String),
+    #[command(
+        rename = "unsub_twitter_likes",
+        description = "unsubscribe chat from tiktok user video feed."
+    )]
+    TwitterUnsubscribeLikes(String),
+    #[command(
+        rename = "unsub_twitter_likes",
+        description = "unsubscribe chat from tiktok user video feed."
+    )]
+    TwitterUnsubscribeVideo(String),
     #[command(description = "off")]
     SetNewCookie(String),
 }
@@ -95,40 +115,52 @@ async fn answer(
         }
         Command::ShowSubscriptions => show_subscriptions(&cx, &chat_id).await,
         Command::LastTweet(username) => {
-            last_n_data::<TwitterApi>(&cx, username, 1, TwitterSub::Tweets).await
+            last_n_data::<TwitterApi>(&cx, username, 1, SubscriptionType::Content).await
         }
         Command::LastNTweets { username, n } => {
-            last_n_data::<TwitterApi>(&cx, username, n, TwitterSub::Tweets).await
+            last_n_data::<TwitterApi>(&cx, username, n, SubscriptionType::Content).await
         }
         Command::LastLikedTweet(username) => {
-            last_n_data::<TwitterApi>(&cx, username, 1, TwitterSub::Likes).await
+            last_n_data::<TwitterApi>(&cx, username, 1, SubscriptionType::Likes).await
         }
         Command::LastNLikedTweet { username, n } => {
-            last_n_data::<TwitterApi>(&cx, username, n, TwitterSub::Likes).await
+            last_n_data::<TwitterApi>(&cx, username, n, SubscriptionType::Likes).await
         }
         Command::LastLike(username) => {
-            last_n_data::<TiktokApi>(&cx, username, 1, TiktokSub::Likes).await
+            last_n_data::<TiktokApi>(&cx, username, 1, SubscriptionType::Likes).await
         }
         Command::LastNLike { username, n } => {
-            last_n_data::<TiktokApi>(&cx, username, n, TiktokSub::Likes).await
+            last_n_data::<TiktokApi>(&cx, username, n, SubscriptionType::Likes).await
         }
         Command::LastVideo(username) => {
-            last_n_data::<TiktokApi>(&cx, username, 1, TiktokSub::CreatedVideos).await
+            last_n_data::<TiktokApi>(&cx, username, 1, SubscriptionType::Content).await
         }
         Command::LastNVideo { username, n } => {
-            last_n_data::<TiktokApi>(&cx, username, n, TiktokSub::CreatedVideos).await
+            last_n_data::<TiktokApi>(&cx, username, n, SubscriptionType::Content).await
         }
-        Command::SubscribeLikes(username) => {
-            subscribe(&cx, username, &chat_id, TiktokSub::Likes).await
+        Command::TiktokSubscribeLikes(username) => {
+            subscribe::<TiktokApi>(&cx, username, &chat_id, SubscriptionType::Likes).await
         }
-        Command::SubscribeVideo(username) => {
-            subscribe(&cx, username, &chat_id, TiktokSub::CreatedVideos).await
+        Command::TiktokSubscribeVideo(username) => {
+            subscribe::<TiktokApi>(&cx, username, &chat_id, SubscriptionType::Content).await
         }
-        Command::UnsubscribeLikes(username) => {
-            unsubscribe(&cx, username, &chat_id, TiktokSub::Likes).await
+        Command::TiktokUnsubscribeLikes(username) => {
+            unsubscribe::<TiktokApi>(&cx, username, &chat_id, SubscriptionType::Likes).await
         }
-        Command::UnsubscribeVideo(username) => {
-            unsubscribe(&cx, username, &chat_id, TiktokSub::CreatedVideos).await
+        Command::TiktokUnsubscribeVideo(username) => {
+            unsubscribe::<TiktokApi>(&cx, username, &chat_id, SubscriptionType::Content).await
+        }
+        Command::TwitterSubscribeLikes(username) => {
+            subscribe::<TwitterApi>(&cx, username, &chat_id, SubscriptionType::Likes).await
+        }
+        Command::TwitterSubscribeVideo(username) => {
+            subscribe::<TwitterApi>(&cx, username, &chat_id, SubscriptionType::Content).await
+        }
+        Command::TwitterUnsubscribeLikes(username) => {
+            unsubscribe::<TwitterApi>(&cx, username, &chat_id, SubscriptionType::Likes).await
+        }
+        Command::TwitterUnsubscribeVideo(username) => {
+            unsubscribe::<TwitterApi>(&cx, username, &chat_id, SubscriptionType::Content).await
         }
         Command::SetNewCookie(cookie) => {
             log::info!("Sending new cookie to the api: {}", cookie);
@@ -153,32 +185,54 @@ async fn answer(
     status
 }
 
+async fn get_subscription_string_for_api<Api: DatabaseInfoProvider + ApiName>(
+    chat_id: &str,
+    db: &MongoDatabase,
+) -> Result<String, anyhow::Error> {
+    let chat = db.get_chat_info::<Api>(chat_id).await?;
+    if let Some(chat) = chat {
+        let content = chat.subscribed_for_content_to.unwrap_or(Vec::new());
+        let likes = chat.subscribed_for_likes_to.unwrap_or(Vec::new());
+        let content_subscribers = content.into_iter().fold(String::new(), |result, i| {
+            result + &format!("@{} - Content-type subscription\n", i)
+        });
+        let like_subscribers = likes.into_iter().fold(String::new(), |result, i| {
+            result + &format!("@{} - Like-type subscription", i)
+        });
+        if !content_subscribers.is_empty() || !like_subscribers.is_empty() {
+            Ok(format!(
+                "{}:\n{}{}\n",
+                Api::name(),
+                content_subscribers,
+                like_subscribers
+            ))
+        } else {
+            Ok(String::new())
+        }
+    } else {
+        Ok(String::new())
+    }
+}
+
 async fn show_subscriptions(
     cx: &UpdateWithCx<AutoSend<Bot>, Message>,
     chat_id: &str,
 ) -> Result<(), anyhow::Error> {
     let db = super::create_db().await?;
+    let tiktok_subs = get_subscription_string_for_api::<TiktokApi>(chat_id, &db)
+        .await
+        .unwrap_or(String::new());
+    let twitter_subs = get_subscription_string_for_api::<TwitterApi>(chat_id, &db)
+        .await
+        .unwrap_or(String::new());
 
-    let chat = db.get_chat_info(chat_id).await?;
     let empty_text = "Currently, group doesn't have any subscriptions";
-    if let Some(chat) = chat {
-        let content = chat.subscribed_for_content_to.unwrap_or(Vec::new());
-        let likes = chat.subscribed_for_likes_to.unwrap_or(Vec::new());
-        if !content.is_empty() || !likes.is_empty() {
-            let content_subscribers = content.into_iter().fold(String::new(), |result, i| {
-                result + &format!("@{} - Content-type subscription\n", i)
-            });
-            let like_subscribers = likes.into_iter().fold(String::new(), |result, i| {
-                result + &format!("@{} - Like-type subscription\n", i)
-            });
-            cx.answer(format!(
-                "Group subscriptions:\n{}{}",
-                content_subscribers, like_subscribers
-            ))
-            .await?;
-        } else {
-            cx.answer(empty_text).await?;
-        }
+    if !tiktok_subs.is_empty() || !twitter_subs.is_empty() {
+        cx.answer(format!(
+            "Group subscriptions:\n{}{}",
+            tiktok_subs, twitter_subs
+        ))
+        .await?;
     } else {
         cx.answer(empty_text).await?;
     }
@@ -189,17 +243,18 @@ async fn last_n_data<Api>(
     cx: &UpdateWithCx<AutoSend<Bot>, Message>,
     username: String,
     n: u8,
-    etype: Api::ContentType,
+    etype: SubscriptionType,
 ) -> Result<(), anyhow::Error>
 where
-    Api: ApiContentReceiver + ApiUserInfoReceiver + FromEnv<Api>,
-    <Api as ApiContentReceiver>::Out: ReturnDataForDownload + ReturnTextInfo,
-    <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
-    <Api as ApiContentReceiver>::ContentType: Copy
+    Api: ApiContentReceiver
+        + ApiUserInfoReceiver
+        + FromEnv<Api>
         + GenerateSubscriptionMessage<
             <Api as ApiUserInfoReceiver>::Out,
             <Api as ApiContentReceiver>::Out,
         >,
+    <Api as ApiContentReceiver>::Out: ReturnDataForDownload + ReturnTextInfo,
+    <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
 {
     let api = Api::from_env();
     let user_info = api.get_user_info(&username).await?;
@@ -209,6 +264,7 @@ where
     super::download_content(&data).await;
     for i in data.into_iter().rev() {
         super::send_content(
+            &api,
             &cx.requester,
             &user_info,
             &cx.update.chat.id.to_string(),
@@ -228,51 +284,67 @@ where
     }
 }
 
-async fn subscribe(
+async fn subscribe<Api>(
     cx: &UpdateWithCx<AutoSend<Bot>, Message>,
     username: String,
     chat_id: &str,
-    stype: TiktokSub,
-) -> Result<(), anyhow::Error> {
+    stype: SubscriptionType,
+) -> Result<(), anyhow::Error>
+where
+    Api: DatabaseInfoProvider + ApiContentReceiver + ApiUserInfoReceiver + FromEnv<Api>,
+    <Api as ApiContentReceiver>::Out: GetId,
+    <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
+{
     let db = super::create_db().await?;
 
-    if db.is_user_subscribed(&username, chat_id, stype).await? {
+    if db
+        .is_user_subscribed::<Api>(&username, chat_id, stype)
+        .await?
+    {
         cx.answer(format!("You already subscribed to {}", &username))
             .await?;
         Ok(())
     } else {
-        let api = TiktokApi::from_env();
+        let api = Api::from_env();
         let user_info = api.get_user_info(&username).await?;
-        let likes = api.get_content(&username, 5, stype).await?;
-        for like in likes {
-            db.add_content(&like.id, &user_info.unique_user_id, stype)
+        let content = api.get_content(&user_info.id(), 5, stype).await?;
+        for item in content {
+            db.add_content::<Api>(&item.id(), &user_info.id(), stype)
                 .await?;
         }
-        db.subscribe_user(&username, &chat_id, stype).await?;
+        db.subscribe_user::<Api>(&user_info.username(), &chat_id, stype)
+            .await?;
         cx.answer(format!(
             "Successfully subscribed to {} aka {}",
-            &username, &user_info.nickname
+            &username,
+            &user_info.nickname()
         ))
         .await?;
         Ok(())
     }
 }
 
-async fn unsubscribe(
+async fn unsubscribe<Api>(
     cx: &UpdateWithCx<AutoSend<Bot>, Message>,
     username: String,
     chat_id: &str,
-    stype: TiktokSub,
-) -> Result<(), anyhow::Error> {
+    stype: SubscriptionType,
+) -> Result<(), anyhow::Error>
+where
+    Api: DatabaseInfoProvider,
+{
     let db = super::create_db().await?;
-
-    if !db.is_user_subscribed(&username, chat_id, stype).await? {
+    if !db
+        .is_user_subscribed::<Api>(&username, chat_id, stype)
+        .await?
+    {
         cx.answer(format!("You were not subscribed to {}", &username))
             .await?;
         Ok(())
     } else {
-        db.unsubscribe_user(&username, &chat_id, stype).await?;
-        cx.answer(format!("Successfully unsubscribed from {}", username))
+        db.unsubscribe_user::<Api>(&username, &chat_id, stype)
+            .await?;
+        cx.answer(format!("Successfully unsubscribed from {}", &username))
             .await?;
         Ok(())
     }

@@ -11,12 +11,11 @@ use std::fs::File;
 use std::io;
 use std::path::Path;
 
-use crate::api::ReturnDataForDownload;
 use crate::api::{
-    tiktok as tiktokapi, DataForDownload, GenerateSubscriptionMessage, ReturnTextInfo,
-    ReturnUserInfo,
+    DataForDownload, GenerateSubscriptionMessage, ReturnDataForDownload, ReturnTextInfo,
+    ReturnUserInfo, SubscriptionType,
 };
-use crate::database::{tiktok as tiktokdb, MongoDatabase};
+use crate::database::MongoDatabase;
 
 async fn create_db() -> Result<MongoDatabase, anyhow::Error> {
     if let Ok(con) = env::var("TIKTOK_BOT_MONGO_CON_STRING") {
@@ -27,7 +26,8 @@ async fn create_db() -> Result<MongoDatabase, anyhow::Error> {
     panic!("TIKTOK_BOT_MONGO_CON_STRING & TIKTOK_BOT_DATABASE_NAME env variables don't exist");
 }
 
-async fn send_content<UserInfo, Content, SubscriptionType>(
+async fn send_content<Api, UserInfo, Content>(
+    _: &Api,
     bot: &AutoSend<Bot>,
     user_info: &UserInfo,
     chat_id: &str,
@@ -35,17 +35,23 @@ async fn send_content<UserInfo, Content, SubscriptionType>(
     stype: SubscriptionType,
 ) -> Result<(), anyhow::Error>
 where
+    Api: GenerateSubscriptionMessage<UserInfo, Content>,
     UserInfo: ReturnUserInfo,
     Content: ReturnDataForDownload + ReturnTextInfo,
-    SubscriptionType: GenerateSubscriptionMessage<UserInfo, Content>,
 {
     let chat_id: i64 = chat_id.parse().unwrap();
     if !content.is_data_for_download() {
-        (if let Some(v) = stype.subscription_format() {
-            bot.send_message(chat_id, stype.subscription_message(&user_info, &content))
-                .parse_mode(v)
+        (if let Some(v) = Api::subscription_format() {
+            bot.send_message(
+                chat_id,
+                Api::subscription_message(&user_info, &content, stype),
+            )
+            .parse_mode(v)
         } else {
-            bot.send_message(chat_id, stype.subscription_message(&user_info, &content))
+            bot.send_message(
+                chat_id,
+                Api::subscription_message(&user_info, &content, stype),
+            )
         })
         .disable_web_page_preview(true)
         .await?;
@@ -59,7 +65,7 @@ where
                 let media = InputFile::File(Path::new(&filename).to_path_buf());
                 let caption = if is_first {
                     is_first = false;
-                    Some(stype.subscription_message(&user_info, &content))
+                    Some(Api::subscription_message(&user_info, &content, stype))
                 } else {
                     None
                 };
@@ -67,14 +73,14 @@ where
                     crate::api::DataType::Image => InputMedia::Photo(InputMediaPhoto {
                         media,
                         caption,
-                        parse_mode: stype.subscription_format(),
+                        parse_mode: Api::subscription_format(),
                         caption_entities: None,
                     }),
                     crate::api::DataType::Video => InputMedia::Video(InputMediaVideo {
                         media,
                         thumb: None,
                         caption,
-                        parse_mode: stype.subscription_format(),
+                        parse_mode: Api::subscription_format(),
                         caption_entities: None,
                         width: None,
                         height: None,
@@ -84,7 +90,6 @@ where
                 }
             })
             .collect();
-        println!("{}", stype.subscription_message(&user_info, &content));
         bot.send_media_group(chat_id, media).await?;
     }
     Ok(())

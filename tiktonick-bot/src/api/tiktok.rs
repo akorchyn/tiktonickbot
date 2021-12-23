@@ -3,8 +3,9 @@ use reqwest;
 use std::env;
 
 use crate::api::{
-    ApiContentReceiver, ApiUserInfoReceiver, DataForDownload, DataType,
-    GenerateSubscriptionMessage, ReturnDataForDownload, ReturnTextInfo, ReturnUserInfo,
+    ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload, DataType,
+    DatabaseInfoProvider, GenerateSubscriptionMessage, GetId, ReturnDataForDownload,
+    ReturnTextInfo, ReturnUserInfo, SubscriptionType,
 };
 use anyhow;
 use async_trait::async_trait;
@@ -40,6 +41,12 @@ pub(crate) struct Video {
     pub(crate) description: String,
 }
 
+impl GetId for Video {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
 impl ReturnTextInfo for Video {
     fn text_info(&self) -> &str {
         &self.description
@@ -59,30 +66,18 @@ impl ReturnDataForDownload for Video {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub(crate) enum SubscriptionType {
-    Likes,
-    CreatedVideos,
+pub(crate) struct TiktokApi {
+    secret: String,
+    tiktok_domain: String,
 }
 
-impl SubscriptionType {
-    pub(crate) fn iterator() -> impl Iterator<Item = SubscriptionType> {
-        [SubscriptionType::CreatedVideos, SubscriptionType::Likes]
-            .iter()
-            .copied()
-    }
-
-    fn to_query_param(&self) -> &'static str {
-        match *self {
-            SubscriptionType::CreatedVideos => "user_videos",
-            SubscriptionType::Likes => "user_likes",
-        }
-    }
-}
-
-impl GenerateSubscriptionMessage<UserInfo, Video> for SubscriptionType {
-    fn subscription_message(&self, user_info: &UserInfo, video: &Video) -> String {
-        match *self {
+impl GenerateSubscriptionMessage<UserInfo, Video> for TiktokApi {
+    fn subscription_message(
+        user_info: &UserInfo,
+        video: &Video,
+        stype: SubscriptionType,
+    ) -> String {
+        match stype {
             SubscriptionType::Likes => format!(
                 "User {} aka {} liked video from {} aka {}.\n\nDescription:\n{}",
                 user_info.unique_user_id,
@@ -91,20 +86,15 @@ impl GenerateSubscriptionMessage<UserInfo, Video> for SubscriptionType {
                 video.nickname,
                 video.description
             ),
-            SubscriptionType::CreatedVideos => format!(
+            SubscriptionType::Content => format!(
                 "User {} aka {} posted video.\n\nDescription:\n{}",
                 video.unique_user_id, video.nickname, video.description
             ),
         }
     }
-    fn subscription_format(&self) -> Option<super::ParseMode> {
+    fn subscription_format() -> Option<super::ParseMode> {
         None
     }
-}
-
-pub(crate) struct TiktokApi {
-    secret: String,
-    tiktok_domain: String,
 }
 
 impl TiktokApi {
@@ -161,6 +151,26 @@ impl TiktokApi {
     }
 }
 
+impl ApiName for TiktokApi {
+    fn name() -> &'static str {
+        "Tiktok"
+    }
+}
+
+impl DatabaseInfoProvider for TiktokApi {
+    fn user_collection_name() -> &'static str {
+        "tiktokUsers"
+    }
+
+    fn chat_collection_name() -> &'static str {
+        "tiktokChats"
+    }
+
+    fn content_collection_name() -> &'static str {
+        "tiktokData"
+    }
+}
+
 impl super::FromEnv<TiktokApi> for TiktokApi {
     fn from_env() -> TiktokApi {
         TiktokApi {
@@ -173,14 +183,17 @@ impl super::FromEnv<TiktokApi> for TiktokApi {
 #[async_trait]
 impl ApiContentReceiver for TiktokApi {
     type Out = Video;
-    type ContentType = SubscriptionType;
     async fn get_content(
         &self,
         id: &str,
         count: u8,
         etype: SubscriptionType,
     ) -> Result<Vec<Video>, anyhow::Error> {
-        TiktokApi::load_data(&self.create_query(etype.to_query_param(), id, count)).await
+        let query_param = match etype {
+            SubscriptionType::Content => "user_videos",
+            SubscriptionType::Likes => "user_likes",
+        };
+        TiktokApi::load_data(&self.create_query(query_param, id, count)).await
     }
 }
 

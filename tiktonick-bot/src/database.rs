@@ -2,18 +2,38 @@ use futures::stream::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use anyhow;
-use async_trait::async_trait;
 use mongodb::{
     bson::{doc, DateTime, Document},
     options::{ClientOptions, UpdateOptions},
     Client, Database,
 };
 
-pub(crate) mod tiktok;
-pub(crate) mod twitter;
+use crate::api::{DatabaseInfoProvider, SubscriptionType};
 
-pub(crate) trait CollectionReturn {
-    fn collection_name() -> &'static str;
+pub(crate) trait DbCollectionForTypeRetrieval {
+    fn collection<Api: DatabaseInfoProvider>() -> &'static str;
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct User {
+    pub(crate) id: String,
+    pub(crate) subscribed_chats_to_likes: Option<Vec<String>>,
+    pub(crate) subscribed_chats_to_content: Option<Vec<String>>,
+}
+
+impl User {
+    pub fn get_chats_by_subscription_type(&self, stype: SubscriptionType) -> &Option<Vec<String>> {
+        match stype {
+            SubscriptionType::Likes => &self.subscribed_chats_to_likes,
+            SubscriptionType::Content => &self.subscribed_chats_to_content,
+        }
+    }
+}
+
+impl DbCollectionForTypeRetrieval for User {
+    fn collection<Api: DatabaseInfoProvider>() -> &'static str {
+        Api::user_collection_name()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -23,9 +43,62 @@ pub(crate) struct ChatInfo {
     pub(crate) subscribed_for_content_to: Option<Vec<String>>,
 }
 
-impl CollectionReturn for ChatInfo {
-    fn collection_name() -> &'static str {
-        "chats"
+impl DbCollectionForTypeRetrieval for ChatInfo {
+    fn collection<Api: DatabaseInfoProvider>() -> &'static str {
+        Api::chat_collection_name()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct ContentRecord {
+    pub(crate) id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub(super) struct DataStorage {
+    id: String,
+    liked_content: Option<Vec<ContentRecord>>,
+    processed_content: Option<Vec<ContentRecord>>,
+}
+
+impl DbCollectionForTypeRetrieval for DataStorage {
+    fn collection<Api: DatabaseInfoProvider>() -> &'static str {
+        Api::content_collection_name()
+    }
+}
+
+impl DataStorage {
+    pub(super) fn get_videos_by_subscription_type(
+        &self,
+        stype: SubscriptionType,
+    ) -> &Option<Vec<ContentRecord>> {
+        match stype {
+            SubscriptionType::Likes => &self.liked_content,
+            SubscriptionType::Content => &self.processed_content,
+        }
+    }
+}
+
+impl SubscriptionType {
+    fn as_subscription_string(&self) -> &'static str {
+        match *self {
+            SubscriptionType::Likes => "subscribed_chats_to_likes",
+            SubscriptionType::Content => "subscribed_chats_to_content",
+        }
+    }
+
+    fn as_chat_string(&self) -> &'static str {
+        match *self {
+            SubscriptionType::Likes => "subscribed_for_likes_to",
+            SubscriptionType::Content => "subscribed_for_content_to",
+        }
+    }
+
+    fn as_storage_string(&self) -> &'static str {
+        match *self {
+            SubscriptionType::Likes => "liked_content",
+            SubscriptionType::Content => "processed_content",
+        }
     }
 }
 
@@ -45,11 +118,13 @@ impl MongoDatabase {
         Ok(MongoDatabase { db: database })
     }
 
-    pub(crate) async fn get_collection<T>(&self) -> Result<Vec<T>, anyhow::Error>
+    pub(crate) async fn get_collection<Api, T>(&self) -> Result<Vec<T>, anyhow::Error>
     where
-        for<'a> T: Deserialize<'a> + CollectionReturn + Unpin + std::marker::Send + Sync,
+        Api: DatabaseInfoProvider,
+        for<'a> T:
+            Deserialize<'a> + DbCollectionForTypeRetrieval + Unpin + std::marker::Send + Sync,
     {
-        let collection = self.db.collection::<T>(T::collection_name());
+        let collection = self.db.collection::<T>(T::collection::<Api>());
         let cursor = collection.find(None, None).await?;
         let vector_of_results: Vec<Result<_, _>> = cursor.collect().await;
         let result: Result<Vec<_>, _> = vector_of_results.into_iter().collect();
@@ -60,11 +135,14 @@ impl MongoDatabase {
         }
     }
 
-    pub(crate) async fn get_chat_info(
+    pub(crate) async fn get_chat_info<Api>(
         &self,
         chat_id: &str,
-    ) -> Result<Option<ChatInfo>, anyhow::Error> {
-        let collection = self.db.collection::<ChatInfo>(ChatInfo::collection_name());
+    ) -> Result<Option<ChatInfo>, anyhow::Error>
+    where
+        Api: DatabaseInfoProvider,
+    {
+        let collection = self.db.collection::<ChatInfo>(Api::chat_collection_name());
         let query = doc! {
             "chat_id": chat_id
         };
@@ -111,20 +189,20 @@ impl MongoDatabase {
         self.op_on_collection("$pull", collection_name, query, data)
             .await
     }
-}
 
-#[async_trait]
-impl tiktok::DatabaseApi for MongoDatabase {
-    async fn subscribe_user(
+    pub(crate) async fn subscribe_user<Api>(
         &self,
-        tiktok_username: &str,
+        id: &str,
         chat_id: &str,
-        stype: tiktok::SubscriptionType,
-    ) -> Result<(), anyhow::Error> {
+        stype: SubscriptionType,
+    ) -> Result<(), anyhow::Error>
+    where
+        Api: DatabaseInfoProvider,
+    {
         self.push_to_collection(
-            "users",
+            Api::user_collection_name(),
             doc! {
-                "tiktok_username": tiktok_username,
+                "id": id,
             },
             doc! {
                 stype.as_subscription_string(): chat_id
@@ -132,28 +210,31 @@ impl tiktok::DatabaseApi for MongoDatabase {
         )
         .await?;
         self.push_to_collection(
-            "chats",
+            Api::chat_collection_name(),
             doc! {
                 "chat_id": chat_id,
             },
             doc! {
-                stype.as_chat_string(): tiktok_username
+                stype.as_chat_string(): id
             },
         )
         .await?;
         Ok(())
     }
 
-    async fn unsubscribe_user(
+    pub(crate) async fn unsubscribe_user<Api>(
         &self,
-        tiktok_username: &str,
+        id: &str,
         chat_id: &str,
-        stype: tiktok::SubscriptionType,
-    ) -> Result<(), anyhow::Error> {
+        stype: SubscriptionType,
+    ) -> Result<(), anyhow::Error>
+    where
+        Api: DatabaseInfoProvider,
+    {
         self.pull_from_collection(
-            "users",
+            Api::user_collection_name(),
             doc! {
-                "tiktok_username": tiktok_username,
+                "id": id,
             },
             doc! {
                 stype.as_subscription_string(): chat_id
@@ -161,29 +242,32 @@ impl tiktok::DatabaseApi for MongoDatabase {
         )
         .await?;
         self.pull_from_collection(
-            "chats",
+            Api::chat_collection_name(),
             doc! {
                 "chat_id": chat_id,
             },
             doc! {
-                stype.as_chat_string(): tiktok_username
+                stype.as_chat_string(): id
             },
         )
         .await?;
         Ok(())
     }
 
-    async fn add_content(
+    pub(crate) async fn add_content<Api>(
         &self,
         content_id: &str,
         user_id: &str,
-        stype: tiktok::SubscriptionType,
-    ) -> Result<(), anyhow::Error> {
+        stype: SubscriptionType,
+    ) -> Result<(), anyhow::Error>
+    where
+        Api: DatabaseInfoProvider,
+    {
         let datetime: DateTime = DateTime::now();
         self.push_to_collection(
-            "userData",
+            Api::content_collection_name(),
             doc! {
-                "tiktok_username": &user_id,
+                "id": &user_id,
             },
             doc! {stype.as_storage_string(): {
                 "id": &content_id,
@@ -194,17 +278,22 @@ impl tiktok::DatabaseApi for MongoDatabase {
         Ok(())
     }
 
-    async fn is_video_showed(
+    pub(crate) async fn is_content_showed<Api>(
         &self,
         video_id: &str,
-        tiktok_username: &str,
-        stype: tiktok::SubscriptionType,
-    ) -> Result<bool, anyhow::Error> {
-        let collection = self.db.collection::<tiktok::UserStorage>("userData");
+        user_id: &str,
+        stype: SubscriptionType,
+    ) -> Result<bool, anyhow::Error>
+    where
+        Api: DatabaseInfoProvider,
+    {
+        let collection = self
+            .db
+            .collection::<DataStorage>(Api::content_collection_name());
         let query = doc! {
-            "tiktok_username": &tiktok_username
+            "id": &user_id
         };
-        let option: Option<tiktok::UserStorage> = collection.find_one(query, None).await?;
+        let option: Option<DataStorage> = collection.find_one(query, None).await?;
         if let Some(videos) = option {
             if let Some(videos) = videos.get_videos_by_subscription_type(stype) {
                 return Ok(videos.into_iter().any(|video| video.id == video_id));
@@ -213,17 +302,17 @@ impl tiktok::DatabaseApi for MongoDatabase {
         Ok(false)
     }
 
-    async fn is_user_subscribed(
+    pub(crate) async fn is_user_subscribed<Api: DatabaseInfoProvider>(
         &self,
         user_id: &str,
         chat_id: &str,
-        stype: tiktok::SubscriptionType,
+        stype: SubscriptionType,
     ) -> Result<bool, anyhow::Error> {
-        let collection = self.db.collection::<tiktok::User>("users");
+        let collection = self.db.collection::<User>(Api::user_collection_name());
         let query = doc! {
-            "tiktok_username": &user_id
+            "id": &user_id
         };
-        let option: Option<tiktok::User> = collection.find_one(query, None).await?;
+        let option: Option<User> = collection.find_one(query, None).await?;
         if let Some(user) = option {
             if let Some(chats) = user.get_chats_by_subscription_type(stype) {
                 return Ok(chats.into_iter().any(|id| chat_id == id));

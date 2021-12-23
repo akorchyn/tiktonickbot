@@ -3,8 +3,9 @@ use reqwest::{self, Client};
 use std::env;
 
 use crate::api::{
-    ApiContentReceiver, ApiUserInfoReceiver, DataForDownload, DataType, FromEnv,
-    GenerateSubscriptionMessage, ReturnDataForDownload, ReturnTextInfo, ReturnUserInfo,
+    ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload, DataType,
+    DatabaseInfoProvider, FromEnv, GenerateSubscriptionMessage, GetId, ReturnDataForDownload,
+    ReturnTextInfo, ReturnUserInfo, SubscriptionType,
 };
 use anyhow;
 use async_trait::async_trait;
@@ -34,11 +35,17 @@ impl ReturnUserInfo for UserInfo {
 
 #[derive(Debug, Deserialize, Default)]
 pub(crate) struct Tweet {
-    pub(crate) author_id: String,
+    pub(crate) id: String,
     pub(crate) text: String,
     pub(crate) name: String,
     pub(crate) username: String,
     pub(crate) attachments: Option<Vec<DataForDownload>>,
+}
+
+impl GetId for Tweet {
+    fn id(&self) -> &str {
+        &self.id
+    }
 }
 
 impl ReturnDataForDownload for Tweet {
@@ -57,54 +64,6 @@ impl ReturnDataForDownload for Tweet {
 impl ReturnTextInfo for Tweet {
     fn text_info(&self) -> &str {
         &self.text
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub(crate) enum SubscriptionType {
-    Likes,
-    Tweets,
-}
-
-impl SubscriptionType {
-    pub(crate) fn iterator() -> impl Iterator<Item = SubscriptionType> {
-        [SubscriptionType::Tweets, SubscriptionType::Likes]
-            .iter()
-            .copied()
-    }
-
-    fn to_api_uri(&self, user_id: &str, max_results: u8) -> String {
-        static TWEET_FIELDS: &str =
-            "id,text,attachments,author_id,in_reply_to_user_id,referenced_tweets,source";
-        static EXPANSIONS: &str = "author_id,attachments.media_keys";
-        static MEDIA_FIELDS: &str = "preview_image_url,url,media_key";
-        let api = match *self {
-            SubscriptionType::Tweets => "tweets",
-            SubscriptionType::Likes => "liked_tweets",
-        };
-        format!(
-            "2/users/{}/{}?tweet.fields={}&max_results={}&expansions={}&media.fields={}",
-            user_id, api, &TWEET_FIELDS, max_results, EXPANSIONS, MEDIA_FIELDS
-        )
-    }
-}
-
-impl GenerateSubscriptionMessage<UserInfo, Tweet> for SubscriptionType {
-    fn subscription_message(&self, user: &UserInfo, tweet: &Tweet) -> String {
-        match *self {
-            SubscriptionType::Likes => format!(
-                "<i><a href=\"https://www.twitter.com/{}\">{}</a> liked tweet from <a href=\"https://www.twitter.com/{}\">{}</a>:</i>\n\n{}",
-                user.username, user.name, tweet.username, tweet.name, tweet.text
-            ),
-            SubscriptionType::Tweets => format!(
-                "<i><a href=\"https://www.twitter.com/{}\">{}</a> tweet:</i>\n\n{}",
-                tweet.username, tweet.name, tweet.text
-            ),
-        }
-    }
-
-    fn subscription_format(&self) -> Option<ParseMode> {
-        Some(Html)
     }
 }
 
@@ -128,6 +87,64 @@ impl TwitterApi {
         let data = serde_json::from_str::<T>(&text)?;
         Ok(data)
     }
+
+    fn subscription_type_to_api_uri(
+        stype: SubscriptionType,
+        user_id: &str,
+        max_results: u8,
+    ) -> String {
+        static TWEET_FIELDS: &str =
+            "id,text,attachments,author_id,in_reply_to_user_id,referenced_tweets,source";
+        static EXPANSIONS: &str = "author_id,attachments.media_keys";
+        static MEDIA_FIELDS: &str = "preview_image_url,url,media_key";
+        let api = match stype {
+            SubscriptionType::Content => "tweets",
+            SubscriptionType::Likes => "liked_tweets",
+        };
+        format!(
+            "2/users/{}/{}?tweet.fields={}&max_results={}&expansions={}&media.fields={}",
+            user_id, api, &TWEET_FIELDS, max_results, EXPANSIONS, MEDIA_FIELDS
+        )
+    }
+}
+
+impl ApiName for TwitterApi {
+    fn name() -> &'static str {
+        "Twitter"
+    }
+}
+
+impl GenerateSubscriptionMessage<UserInfo, Tweet> for TwitterApi {
+    fn subscription_message(user: &UserInfo, tweet: &Tweet, stype: SubscriptionType) -> String {
+        match stype {
+            SubscriptionType::Likes => format!(
+                "<i><a href=\"https://www.twitter.com/{}\">{}</a> liked tweet from <a href=\"https://www.twitter.com/{}\">{}</a>:</i>\n\n{}",
+                user.username, user.name, tweet.username, tweet.name, tweet.text
+            ),
+            SubscriptionType::Content => format!(
+                "<i><a href=\"https://www.twitter.com/{}\">{}</a> tweet:</i>\n\n{}",
+                tweet.username, tweet.name, tweet.text
+            ),
+        }
+    }
+
+    fn subscription_format() -> Option<ParseMode> {
+        Some(Html)
+    }
+}
+
+impl DatabaseInfoProvider for TwitterApi {
+    fn user_collection_name() -> &'static str {
+        "twitterUsers"
+    }
+
+    fn chat_collection_name() -> &'static str {
+        "twitterChats"
+    }
+
+    fn content_collection_name() -> &'static str {
+        "twitterData"
+    }
 }
 
 impl FromEnv<TwitterApi> for TwitterApi {
@@ -142,15 +159,16 @@ impl FromEnv<TwitterApi> for TwitterApi {
 #[async_trait]
 impl ApiContentReceiver for TwitterApi {
     type Out = Tweet;
-    type ContentType = SubscriptionType;
     async fn get_content(
         &self,
         id: &str,
         count: u8,
-        etype: SubscriptionType,
+        stype: SubscriptionType,
     ) -> Result<Vec<Tweet>, anyhow::Error> {
         let count = count.min(100).max(5);
-        let tweets = self.get_data::<Tweets>(etype.to_api_uri(id, count)).await?;
+        let tweets = self
+            .get_data::<Tweets>(TwitterApi::subscription_type_to_api_uri(stype, id, count))
+            .await?;
         let media = tweets.includes.media.unwrap_or(Vec::new());
 
         Ok(tweets
@@ -184,7 +202,7 @@ impl ApiContentReceiver for TwitterApi {
                     None
                 };
                 Tweet {
-                    author_id: tweet.author_id,
+                    id: tweet.id,
                     text: tweet.text,
                     name: user_info.name.clone(),
                     username: user_info.username.clone(),
@@ -226,6 +244,7 @@ struct TweetAttachments {
 
 #[derive(Debug, Deserialize, Default)]
 struct TweetRespond {
+    id: String,
     author_id: String,
     text: String,
     attachments: Option<TweetAttachments>,
