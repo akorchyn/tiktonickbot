@@ -1,15 +1,16 @@
-from multiprocessing import AuthenticationError
+import string
 from flask import Flask, request, abort
 from TikTokApi import TikTokApi
 import json
 import os
+import random
 from functools import wraps
 
 import resource
 resource.setrlimit(resource.RLIMIT_NOFILE, (430, 430))
 
 app = Flask(__name__)
-api = TikTokApi.get_instance(use_test_endgpoints=True, proxy="89.191.131.243:8080")
+api = TikTokApi.get_instance(use_test_endgpoints=True)
 API_KEY = os.environ.get('SECRET_KEY', 'blahblah')
 custom_cookie=os.environ.get('COOKIE', None)
 
@@ -63,4 +64,5 @@ def new_cookie():
     global custom_cookie
     custom_cookie = request.form.get('cookie', default=custom_cookie)
     print("new cookie is {}".format(custom_cookie))
+    custom_cookie = "".join(random.choice(string.digits) for num in range(19))
     return ""
