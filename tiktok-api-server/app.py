@@ -9,7 +9,7 @@ import resource
 resource.setrlimit(resource.RLIMIT_NOFILE, (430, 430))
 
 app = Flask(__name__)
-api = TikTokApi.get_instance()
+api = TikTokApi.get_instance(use_test_endgpoints=True)
 API_KEY = os.environ.get('SECRET_KEY', 'blahblah')
 custom_cookie=os.environ.get('COOKIE', None)
 
