@@ -7,4 +7,4 @@ RUN pip3 install -r requirements.txt
 RUN python3 -m playwright install
 RUN DEBIAN_FRONTEND=noninteractive python3 -m playwright install-deps
 COPY . .
-CMD gunicorn wsji:app --bind=0.0.0.0:$PORT --max-requests 10
+CMD gunicorn wsji:app --bind=0.0.0.0:$PORT 

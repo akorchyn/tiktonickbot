@@ -5,14 +5,14 @@ import json
 import os
 import random
 from functools import wraps
-
-import resource
-resource.setrlimit(resource.RLIMIT_NOFILE, (430, 430))
+from stem import Signal
+from stem.control import Controller
+import requests
 
 app = Flask(__name__)
-api = TikTokApi.get_instance(use_test_endgpoints=True)
+api = TikTokApi.get_instance(use_test_endgpoints=True, proxy="http://0.0.0.0:9050")
 API_KEY = os.environ.get('SECRET_KEY', 'blahblah')
-custom_cookie=os.environ.get('COOKIE', None)
+custom_cookie=None
 
 def checkAppKey(view_function):
     @wraps(view_function)
@@ -56,6 +56,10 @@ def status():
         api.user_liked_by_username("wolf49xxx", 1, custom_verifyFp=custom_cookie)
         return ""
     except:
+        with Controller.from_port(port = 9051) as c:
+            c.authenticate()
+            c.signal(Signal.NEWNYM)
+        print("New ip is {}".format(requests.get('https://api.ipify.org', proxies=proxies).text))
         abort(500)
 
 @app.route("/api/new_cookie", methods=['POST'])
@@ -64,5 +68,4 @@ def new_cookie():
     global custom_cookie
     custom_cookie = request.form.get('cookie', default=custom_cookie)
     print("new cookie is {}".format(custom_cookie))
-    custom_cookie = "".join(random.choice(string.digits) for num in range(19))
     return ""
