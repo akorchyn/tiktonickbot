@@ -149,9 +149,11 @@ where
         >,
 {
     let users = db.get_collection::<Api, crate::database::User>().await?;
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
 
     for user in users {
         for stype in SubscriptionType::iterator() {
+            interval.tick().await;
             process_user::<Api>(&bot, &api, &db, &user, stype)
                 .await
                 .unwrap_or_else(|e| {
