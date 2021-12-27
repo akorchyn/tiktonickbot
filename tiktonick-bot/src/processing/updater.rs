@@ -29,7 +29,7 @@ pub(crate) async fn run(bot: AutoSend<Bot>) {
         run_tiktok_api(&bot, &tiktok_api, &db, admin_id)
             .await
             .unwrap_or_else(|e| {
-                log::error!("Twitter update run failed with an error: {}", e);
+                log::error!("Tiktok update run failed with an error: {}", e);
             });
     }
 }

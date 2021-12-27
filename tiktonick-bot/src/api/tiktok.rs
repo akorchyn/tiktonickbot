@@ -132,11 +132,14 @@ impl TiktokApi {
     }
 
     pub(crate) async fn change_proxy(&self) -> String {
-        let response = reqwest::get(format!(
-            "{}/api/change_proxy?key={}",
-            self.tiktok_domain, self.secret
-        ))
-        .await;
+        let client = reqwest::Client::new();
+        client
+            .post(format!(
+                "{}/api/change_proxy?key={}",
+                self.tiktok_domain, self.secret
+            ))
+            .send()
+            .await;
         if let Ok(response) = response {
             response.text().await.unwrap_or("Failed".to_string())
         } else {
