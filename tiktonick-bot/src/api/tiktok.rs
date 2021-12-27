@@ -131,6 +131,19 @@ impl TiktokApi {
         .unwrap_or(false)
     }
 
+    pub(crate) async fn change_proxy(&self) -> String {
+        let response = reqwest::get(format!(
+            "{}/api/change_proxy?key={}",
+            self.tiktok_domain, self.secret
+        ))
+        .await;
+        if let Ok(response) = response {
+            response.text().await.unwrap_or("Failed".to_string())
+        } else {
+            "Failed".to_string()
+        }
+    }
+
     pub(crate) async fn send_api_new_cookie(&self, cookie: String) -> Result<(), anyhow::Error> {
         let client = reqwest::Client::new();
         client

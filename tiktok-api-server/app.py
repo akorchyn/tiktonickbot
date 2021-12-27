@@ -10,7 +10,7 @@ from stem.control import Controller
 import requests
 
 app = Flask(__name__)
-api = TikTokApi.get_instance(use_test_endgpoints=True, proxy="http://0.0.0.0:9050")
+api = TikTokApi.get_instance(use_test_endgpoints=True, proxy="socks5://localhost:9050")
 API_KEY = os.environ.get('SECRET_KEY', 'blahblah')
 custom_cookie=None
 
@@ -56,11 +56,16 @@ def status():
         api.user_liked_by_username("wolf49xxx", 1, custom_verifyFp=custom_cookie)
         return ""
     except:
-        with Controller.from_port(port = 9051) as c:
-            c.authenticate()
-            c.signal(Signal.NEWNYM)
-        print("New ip is {}".format(requests.get('https://api.ipify.org', proxies=proxies).text))
         abort(500)
+
+@app.route("/api/change_proxy/", methods=['POST'])
+@checkAppKey
+def changeProxy():
+    with Controller.from_port(address="127.0.0.1", port=9051) as c:
+        c.authenticate()
+        c.signal(Signal.NEWNYM)
+    return requests.get('https://api.ipify.org', proxies={"http": "socks5://localhost:9050",
+                                                          "https": "socks5://localhost:9050"}).text
 
 @app.route("/api/new_cookie", methods=['POST'])
 @checkAppKey

@@ -45,10 +45,17 @@ async fn run_tiktok_api(
         updates_monitor_run::<TiktokApi>(&bot, &api, &db).await?;
         log::info!("Finished updating TikTok feeds");
     } else {
-        log::info!("Tiktok api is dead");
+        let proxy_ip = api.change_proxy().await;
+        log::info!(
+            "Tiktok api is dead. Changing proxy. New ip is: {}",
+            proxy_ip
+        );
         bot.send_message(
             admin_id,
-            "Unfortunately, Tiktok api doesn't responds. Please, take care of it".to_string(),
+            format!(
+                "Unfortunately, Tiktok api doesn't responds. Change IP to {}",
+                proxy_ip
+            ),
         )
         .disable_notification(true)
         .await?;
