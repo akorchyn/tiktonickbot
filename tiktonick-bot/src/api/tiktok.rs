@@ -3,7 +3,7 @@ use reqwest;
 use std::env;
 
 use crate::api::{
-    ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload, DataType,
+    ApiAlive, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload, DataType,
     DatabaseInfoProvider, GenerateSubscriptionMessage, GetId, ReturnDataForDownload,
     ReturnTextInfo, ReturnUserInfo, SubscriptionType,
 };
@@ -121,32 +121,6 @@ impl TiktokApi {
             .collect())
     }
 
-    pub(crate) async fn check_alive(&self) -> bool {
-        reqwest::get(format!(
-            "{}/api/status?key={}",
-            self.tiktok_domain, self.secret
-        ))
-        .await
-        .and_then(|response| Ok(response.status() == 200))
-        .unwrap_or(false)
-    }
-
-    pub(crate) async fn change_proxy(&self) -> String {
-        let client = reqwest::Client::new();
-        let response = client
-            .post(format!(
-                "{}/api/change_proxy?key={}",
-                self.tiktok_domain, self.secret
-            ))
-            .send()
-            .await;
-        if let Ok(response) = response {
-            response.text().await.unwrap_or("Failed".to_string())
-        } else {
-            "Failed".to_string()
-        }
-    }
-
     pub(crate) async fn send_api_new_cookie(&self, cookie: String) -> Result<(), anyhow::Error> {
         let client = reqwest::Client::new();
         client
@@ -157,13 +131,38 @@ impl TiktokApi {
             .form(&[("cookie", &cookie)])
             .send()
             .await?;
-        if self.check_alive().await {
+        if self.is_alive().await {
             Ok(())
         } else {
             Err(anyhow::anyhow!(
                 "Failed to set a cookie or cookie is invalid"
             ))
         }
+    }
+}
+
+#[async_trait]
+impl ApiAlive for TiktokApi {
+    async fn is_alive(&self) -> bool {
+        reqwest::get(format!(
+            "{}/api/status?key={}",
+            self.tiktok_domain, self.secret
+        ))
+        .await
+        .and_then(|response| Ok(response.status() == 200))
+        .unwrap_or(false)
+    }
+
+    async fn try_make_alive(&self) -> Result<(), anyhow::Error> {
+        let client = reqwest::Client::new();
+        client
+            .post(format!(
+                "{}/api/change_proxy?key={}",
+                self.tiktok_domain, self.secret
+            ))
+            .send()
+            .await?;
+        Ok(())
     }
 }
 

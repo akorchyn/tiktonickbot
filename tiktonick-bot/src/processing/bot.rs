@@ -291,7 +291,13 @@ async fn subscribe<Api>(
     stype: SubscriptionType,
 ) -> Result<(), anyhow::Error>
 where
-    Api: DatabaseInfoProvider + ApiContentReceiver + ApiUserInfoReceiver + FromEnv<Api>,
+    Api: DatabaseInfoProvider
+        + ApiContentReceiver
+        + ApiUserInfoReceiver
+        + FromEnv<Api>
+        + ApiAlive
+        + Sync
+        + Send,
     <Api as ApiContentReceiver>::Out: GetId,
     <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
 {
@@ -306,8 +312,19 @@ where
         Ok(())
     } else {
         let api = Api::from_env();
-        let user_info = api.get_user_info(&username).await?;
-        let content = api.get_content(&user_info.id(), 5, stype).await?;
+        let (user_info, content) = loop {
+            if !api.is_alive().await {
+                api.try_make_alive().await?;
+                continue;
+            }
+            let user_info = api.get_user_info(&username).await;
+            if let Ok(user_info) = user_info {
+                let content = api.get_content(&user_info.id(), 5, stype).await;
+                if content.is_ok() {
+                    break (user_info, content.unwrap());
+                }
+            }
+        };
         for item in content {
             db.add_content::<Api>(&item.id(), &username, stype).await?;
         }

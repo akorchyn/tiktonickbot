@@ -3,11 +3,12 @@ use reqwest::{self, Client};
 use std::env;
 
 use crate::api::{
-    ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload, DataType,
+    ApiAlive, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload, DataType,
     DatabaseInfoProvider, FromEnv, GenerateSubscriptionMessage, GetId, ReturnDataForDownload,
     ReturnTextInfo, ReturnUserInfo, SubscriptionType,
 };
 use anyhow;
+use anyhow::Error;
 use async_trait::async_trait;
 use serde::{self, Deserialize};
 use serde_json;
@@ -105,6 +106,18 @@ impl TwitterApi {
             "2/users/{}/{}?tweet.fields={}&max_results={}&expansions={}&media.fields={}",
             user_id, api, &TWEET_FIELDS, max_results, EXPANSIONS, MEDIA_FIELDS
         )
+    }
+}
+
+#[async_trait]
+impl ApiAlive for TwitterApi {
+    async fn is_alive(&self) -> bool {
+        // Twitter API is official. So we can just ignore for now. Probably, we will implement credentials switch in nearby future.
+        true
+    }
+
+    async fn try_make_alive(&self) -> Result<(), Error> {
+        Ok(())
     }
 }
 

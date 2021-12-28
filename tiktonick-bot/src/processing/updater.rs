@@ -16,7 +16,6 @@ pub(crate) async fn run(bot: AutoSend<Bot>) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(120));
     let tiktok_api = TiktokApi::from_env();
     let twitter_api = TwitterApi::from_env();
-    let admin_id: i64 = std::env::var("TELEGRAM_ADMIN_ID").unwrap().parse().unwrap();
 
     loop {
         interval.tick().await;
@@ -26,42 +25,12 @@ pub(crate) async fn run(bot: AutoSend<Bot>) {
             .unwrap_or_else(|e| {
                 log::error!("Twitter update run failed with an error: {}", e);
             });
-        log::info!("Finished updating Twitter feeds");
-        run_tiktok_api(&bot, &tiktok_api, &db, admin_id)
+        updates_monitor_run(&bot, &tiktok_api, &db)
             .await
             .unwrap_or_else(|e| {
-                log::error!("Tiktok update run failed with an error: {}", e);
+                log::error!("Twitter update run failed with an error: {}", e);
             });
     }
-}
-
-async fn run_tiktok_api(
-    bot: &AutoSend<Bot>,
-    api: &TiktokApi,
-    db: &MongoDatabase,
-    admin_id: i64,
-) -> Result<(), anyhow::Error> {
-    if api.check_alive().await {
-        log::info!("Started updating TikTok feeds");
-        updates_monitor_run::<TiktokApi>(&bot, &api, &db).await?;
-        log::info!("Finished updating TikTok feeds");
-    } else {
-        let proxy_ip = api.change_proxy().await;
-        log::info!(
-            "Tiktok api is dead. Changing proxy. New ip is: {}",
-            proxy_ip
-        );
-        bot.send_message(
-            admin_id,
-            format!(
-                "Unfortunately, Tiktok api doesn't responds. Change IP to {}",
-                proxy_ip
-            ),
-        )
-        .disable_notification(true)
-        .await?;
-    }
-    Ok(())
 }
 
 async fn process_user<Api>(
@@ -75,6 +44,7 @@ where
     <Api as ApiContentReceiver>::Out: GetId + ReturnDataForDownload + ReturnTextInfo,
     <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
     Api: DatabaseInfoProvider
+        + ApiAlive
         + ApiName
         + ApiContentReceiver
         + ApiUserInfoReceiver
@@ -83,6 +53,15 @@ where
             <Api as ApiContentReceiver>::Out,
         >,
 {
+    if !api.is_alive().await {
+        log::info!(
+            "{} Api is dead, trying make it alive. Will try update on next iteration",
+            Api::name()
+        );
+        api.try_make_alive().await?;
+        return Ok(());
+    }
+
     let chats = user.get_chats_by_subscription_type(stype);
     if chats.is_none() {
         return Ok(());
@@ -140,6 +119,7 @@ where
     <Api as ApiContentReceiver>::Out: GetId + ReturnDataForDownload + ReturnTextInfo,
     <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
     Api: DatabaseInfoProvider
+        + ApiAlive
         + ApiName
         + ApiContentReceiver
         + ApiUserInfoReceiver

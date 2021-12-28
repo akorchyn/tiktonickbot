@@ -4,6 +4,7 @@ pub(crate) mod twitter;
 use anyhow;
 use async_trait::async_trait;
 use serde::Deserialize;
+use std::future::Future;
 
 use teloxide::types::ParseMode;
 
@@ -27,6 +28,12 @@ pub(crate) trait ApiName {
 
 pub(crate) trait GetId {
     fn id(&self) -> &str;
+}
+
+#[async_trait]
+pub(crate) trait ApiAlive {
+    async fn is_alive(&self) -> bool;
+    async fn try_make_alive(&self) -> Result<(), anyhow::Error>;
 }
 
 #[async_trait]
