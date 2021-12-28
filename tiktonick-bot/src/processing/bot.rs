@@ -70,7 +70,7 @@ enum Command {
     )]
     TiktokUnsubscribeLikes(String),
     #[command(
-        rename = "unsub_tiktok_likes",
+        rename = "unsub_tiktok",
         description = "unsubscribe chat from tiktok user video feed."
     )]
     TiktokUnsubscribeVideo(String),
@@ -90,7 +90,7 @@ enum Command {
     )]
     TwitterUnsubscribeLikes(String),
     #[command(
-        rename = "unsub_twitter_likes",
+        rename = "unsub_twitter",
         description = "unsubscribe chat from tiktok user video feed."
     )]
     TwitterUnsubscribeVideo(String),
