@@ -2508,6 +2508,7 @@ dependencies = [
  "serde_json",
  "teloxide",
  "tokio 1.14.0",
+ "tokio-stream",
 ]
 
 [[package]]

@@ -7,6 +7,8 @@ mod api;
 mod database;
 mod processing;
 
+use std::sync::mpsc::sync_channel;
+
 #[tokio::main]
 async fn main() {
     std::env::var("TELEGRAM_ADMIN_ID").expect("Expect admin id.");
@@ -15,8 +17,8 @@ async fn main() {
         log::error!("Error: couldn't create videos directory.\n{}", e);
         return;
     }
+    let (sender, receiver) = sync_channel::<processing::UserRequest>(5000);
     let bot = Bot::from_env().auto_send();
-    let bot_name: String = String::from("Tikitoki Likes");
-    tokio::spawn(processing::updater::run(bot.clone()));
-    processing::bot::run(bot, bot_name).await;
+    tokio::spawn(processing::updater::run(bot.clone(), receiver));
+    processing::bot::run(bot, sender).await;
 }

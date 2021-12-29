@@ -1,9 +1,16 @@
+use futures::{future, Future, FutureExt};
+use std::fmt::Debug;
+use std::sync::mpsc::SyncSender;
+use teloxide::types::Me;
 use teloxide::{prelude::*, utils::command::BotCommand};
 
 use crate::api::tiktok::TiktokApi;
 use crate::api::twitter::TwitterApi;
 use crate::api::*;
 use crate::database::MongoDatabase;
+use crate::processing::{RequestModel, UserRequest};
+
+use tokio_stream::wrappers::UnboundedReceiverStream;
 
 #[derive(BotCommand)]
 #[command(rename = "lowercase", description = "These commands are supported:")]
@@ -49,7 +56,7 @@ enum Command {
     #[command(rename = "tiktok", description = "sends last video for given user.")]
     LastVideo(String),
     #[command(
-        rename = "ltiktoks",
+        rename = "tiktoks",
         description = "sends last n videos for given user.",
         parse_with = "split"
     )]
@@ -98,91 +105,214 @@ enum Command {
     SetNewCookie(String),
 }
 
-pub(crate) async fn run(bot: AutoSend<Bot>, bot_name: String) {
-    teloxide::commands_repl(bot, bot_name, answer).await;
+pub(crate) async fn run(bot: AutoSend<Bot>, req_sender: SyncSender<UserRequest>) {
+    let Me { user, .. } = bot.get_me().await.expect("Couldn't get myself :(");
+    let name = user.username.expect("Bots *must* have usernames");
+
+    let commands = |(cx, command): (UpdateWithCx<AutoSend<Bot>, Message>, Command),
+                    req_sender: SyncSender<UserRequest>| async move {
+        let message = &cx.update;
+        let chat_id = message.chat.id.to_string();
+        let status = match command {
+            Command::Help => {
+                cx.answer(Command::descriptions()).await?;
+                Ok(())
+            }
+            Command::ShowSubscriptions => show_subscriptions(&cx, &chat_id).await,
+            Command::LastTweet(username) => {
+                last_n_data::<TwitterApi>(
+                    &cx,
+                    &req_sender,
+                    username,
+                    1,
+                    &chat_id,
+                    SubscriptionType::Content,
+                )
+                .await
+            }
+            Command::LastNTweets { username, n } => {
+                last_n_data::<TwitterApi>(
+                    &cx,
+                    &req_sender,
+                    username,
+                    n,
+                    &chat_id,
+                    SubscriptionType::Content,
+                )
+                .await
+            }
+            Command::LastLikedTweet(username) => {
+                last_n_data::<TwitterApi>(
+                    &cx,
+                    &req_sender,
+                    username,
+                    1,
+                    &chat_id,
+                    SubscriptionType::Likes,
+                )
+                .await
+            }
+            Command::LastNLikedTweet { username, n } => {
+                last_n_data::<TwitterApi>(
+                    &cx,
+                    &req_sender,
+                    username,
+                    n,
+                    &chat_id,
+                    SubscriptionType::Likes,
+                )
+                .await
+            }
+            Command::LastLike(username) => {
+                last_n_data::<TiktokApi>(
+                    &cx,
+                    &req_sender,
+                    username,
+                    1,
+                    &chat_id,
+                    SubscriptionType::Likes,
+                )
+                .await
+            }
+            Command::LastNLike { username, n } => {
+                last_n_data::<TiktokApi>(
+                    &cx,
+                    &req_sender,
+                    username,
+                    n,
+                    &chat_id,
+                    SubscriptionType::Likes,
+                )
+                .await
+            }
+            Command::LastVideo(username) => {
+                last_n_data::<TiktokApi>(
+                    &cx,
+                    &req_sender,
+                    username,
+                    1,
+                    &chat_id,
+                    SubscriptionType::Content,
+                )
+                .await
+            }
+            Command::LastNVideo { username, n } => {
+                last_n_data::<TiktokApi>(
+                    &cx,
+                    &req_sender,
+                    username,
+                    n,
+                    &chat_id,
+                    SubscriptionType::Content,
+                )
+                .await
+            }
+            Command::TiktokSubscribeLikes(username) => {
+                subscribe::<TiktokApi>(
+                    &cx,
+                    &req_sender,
+                    username,
+                    &chat_id,
+                    SubscriptionType::Likes,
+                )
+                .await
+            }
+            Command::TiktokSubscribeVideo(username) => {
+                subscribe::<TiktokApi>(
+                    &cx,
+                    &req_sender,
+                    username,
+                    &chat_id,
+                    SubscriptionType::Content,
+                )
+                .await
+            }
+            Command::TiktokUnsubscribeLikes(username) => {
+                unsubscribe::<TiktokApi>(&cx, username, &chat_id, SubscriptionType::Likes).await
+            }
+            Command::TiktokUnsubscribeVideo(username) => {
+                unsubscribe::<TiktokApi>(&cx, username, &chat_id, SubscriptionType::Content).await
+            }
+            Command::TwitterSubscribeLikes(username) => {
+                subscribe::<TwitterApi>(
+                    &cx,
+                    &req_sender,
+                    username,
+                    &chat_id,
+                    SubscriptionType::Likes,
+                )
+                .await
+            }
+            Command::TwitterSubscribeVideo(username) => {
+                subscribe::<TwitterApi>(
+                    &cx,
+                    &req_sender,
+                    username,
+                    &chat_id,
+                    SubscriptionType::Content,
+                )
+                .await
+            }
+            Command::TwitterUnsubscribeLikes(username) => {
+                unsubscribe::<TwitterApi>(&cx, username, &chat_id, SubscriptionType::Likes).await
+            }
+            Command::TwitterUnsubscribeVideo(username) => {
+                unsubscribe::<TwitterApi>(&cx, username, &chat_id, SubscriptionType::Content).await
+            }
+            Command::SetNewCookie(cookie) => {
+                log::info!("Sending new cookie to the api: {}", cookie);
+                if let Some(user) = cx.update.from() {
+                    let admin_id: String = std::env::var("TELEGRAM_ADMIN_ID").unwrap();
+                    if user.id.to_string() == admin_id {
+                        TiktokApi::from_env().send_api_new_cookie(cookie).await?;
+                        cx.answer("Succeed").await?;
+                    } else {
+                        cx.answer("Not authorized").await?;
+                    }
+                }
+                Ok(())
+            }
+        };
+        log::info!("Command handling finished");
+        if let Err(e) = &status {
+            if let Err(_) = cx.reply_to("Unfortunately, you request failed. Please, check input data correctness. If you are sure that your input is correct. Try again later").await {
+                log::info!("Failed to respond to user with error message.\nInitial error: {}", e.to_string());
+            }
+        }
+        status
+    };
+
+    let mut dp = Dispatcher::new(bot)
+        .messages_handler(move |rx| async move {
+            UnboundedReceiverStream::new(rx)
+                .commands(name)
+                .for_each_concurrent(None, err(with(req_sender, commands)))
+                .await
+        })
+        .setup_ctrlc_handler();
+    dp.dispatch().await;
 }
 
-async fn answer(
-    cx: UpdateWithCx<AutoSend<Bot>, Message>,
-    command: Command,
-) -> Result<(), anyhow::Error> {
-    let message = &cx.update;
-    let chat_id = message.chat.id.to_string();
-    let status = match command {
-        Command::Help => {
-            cx.answer(Command::descriptions()).await?;
-            Ok(())
-        }
-        Command::ShowSubscriptions => show_subscriptions(&cx, &chat_id).await,
-        Command::LastTweet(username) => {
-            last_n_data::<TwitterApi>(&cx, username, 1, SubscriptionType::Content).await
-        }
-        Command::LastNTweets { username, n } => {
-            last_n_data::<TwitterApi>(&cx, username, n, SubscriptionType::Content).await
-        }
-        Command::LastLikedTweet(username) => {
-            last_n_data::<TwitterApi>(&cx, username, 1, SubscriptionType::Likes).await
-        }
-        Command::LastNLikedTweet { username, n } => {
-            last_n_data::<TwitterApi>(&cx, username, n, SubscriptionType::Likes).await
-        }
-        Command::LastLike(username) => {
-            last_n_data::<TiktokApi>(&cx, username, 1, SubscriptionType::Likes).await
-        }
-        Command::LastNLike { username, n } => {
-            last_n_data::<TiktokApi>(&cx, username, n, SubscriptionType::Likes).await
-        }
-        Command::LastVideo(username) => {
-            last_n_data::<TiktokApi>(&cx, username, 1, SubscriptionType::Content).await
-        }
-        Command::LastNVideo { username, n } => {
-            last_n_data::<TiktokApi>(&cx, username, n, SubscriptionType::Content).await
-        }
-        Command::TiktokSubscribeLikes(username) => {
-            subscribe::<TiktokApi>(&cx, username, &chat_id, SubscriptionType::Likes).await
-        }
-        Command::TiktokSubscribeVideo(username) => {
-            subscribe::<TiktokApi>(&cx, username, &chat_id, SubscriptionType::Content).await
-        }
-        Command::TiktokUnsubscribeLikes(username) => {
-            unsubscribe::<TiktokApi>(&cx, username, &chat_id, SubscriptionType::Likes).await
-        }
-        Command::TiktokUnsubscribeVideo(username) => {
-            unsubscribe::<TiktokApi>(&cx, username, &chat_id, SubscriptionType::Content).await
-        }
-        Command::TwitterSubscribeLikes(username) => {
-            subscribe::<TwitterApi>(&cx, username, &chat_id, SubscriptionType::Likes).await
-        }
-        Command::TwitterSubscribeVideo(username) => {
-            subscribe::<TwitterApi>(&cx, username, &chat_id, SubscriptionType::Content).await
-        }
-        Command::TwitterUnsubscribeLikes(username) => {
-            unsubscribe::<TwitterApi>(&cx, username, &chat_id, SubscriptionType::Likes).await
-        }
-        Command::TwitterUnsubscribeVideo(username) => {
-            unsubscribe::<TwitterApi>(&cx, username, &chat_id, SubscriptionType::Content).await
-        }
-        Command::SetNewCookie(cookie) => {
-            log::info!("Sending new cookie to the api: {}", cookie);
-            if let Some(user) = cx.update.from() {
-                let admin_id: String = std::env::var("TELEGRAM_ADMIN_ID").unwrap();
-                if user.id.to_string() == admin_id {
-                    TiktokApi::from_env().send_api_new_cookie(cookie).await?;
-                    cx.answer("Succeed").await?;
-                } else {
-                    cx.answer("Not authorized").await?;
-                }
+/// Process errors (log)
+fn err<T, E, F>(f: impl Fn(T) -> F) -> impl Fn(T) -> future::Map<F, fn(Result<(), E>) -> ()>
+where
+    F: Future<Output = Result<(), E>>,
+    E: Debug,
+{
+    move |x| {
+        f(x).map(|r| {
+            if let Err(err) = r {
+                log::error!("Error in handler: {:?}", err);
             }
-            Ok(())
-        }
-    };
-    log::info!("Command handling finished");
-    if let Err(e) = &status {
-        if let Err(_) = cx.reply_to("Unfortunately, you request failed. Please, check input data correctness. If you are sure that your input is correct. Try again later").await {
-            log::info!("Failed to respond to user with error message.\nInitial error: {}", e.to_string());
-        }
+        })
     }
-    status
+}
+
+fn with<A, B, U>(ctx: B, f: impl Fn(A, B) -> U) -> impl Fn(A) -> U
+where
+    B: Clone,
+{
+    move |a| f(a, ctx.clone())
 }
 
 async fn get_subscription_string_for_api<Api: DatabaseInfoProvider + ApiName>(
@@ -241,12 +371,15 @@ async fn show_subscriptions(
 
 async fn last_n_data<Api>(
     cx: &UpdateWithCx<AutoSend<Bot>, Message>,
+    request_sender: &SyncSender<UserRequest>,
     username: String,
     n: u8,
-    etype: SubscriptionType,
+    chat_id: &str,
+    stype: SubscriptionType,
 ) -> Result<(), anyhow::Error>
 where
     Api: ApiContentReceiver
+        + ApiName
         + ApiUserInfoReceiver
         + FromEnv<Api>
         + GenerateSubscriptionMessage<
@@ -256,50 +389,27 @@ where
     <Api as ApiContentReceiver>::Out: ReturnDataForDownload + ReturnTextInfo,
     <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
 {
-    let api = Api::from_env();
-    let user_info = api.get_user_info(&username).await?;
-    let mut data = api.get_content(&user_info.id(), n, etype).await?;
-    data.truncate(n as usize);
-    let mut succeed = true;
-    super::download_content(&data).await;
-    for i in data.into_iter().rev() {
-        super::send_content(
-            &api,
-            &cx.requester,
-            &user_info,
-            &cx.update.chat.id.to_string(),
-            &i,
-            etype,
-        )
-        .await
-        .unwrap_or_else(|e| {
-            log::error!("Failed to send video with {}", e);
-            succeed = false;
-        });
-    }
-    if succeed {
-        Ok(())
-    } else {
-        Err(anyhow::anyhow!("Failed to send some videos..."))
-    }
+    let model = RequestModel {
+        chat_id: chat_id.to_string(),
+        stype,
+        user: username,
+        api: Api::api_type(),
+    };
+    request_sender.send(UserRequest::LastNData(model, n))?;
+    cx.reply_to("Command added to the queue. You will be notified once its processed")
+        .await?;
+    Ok(())
 }
 
 async fn subscribe<Api>(
     cx: &UpdateWithCx<AutoSend<Bot>, Message>,
+    req_sender: &SyncSender<UserRequest>,
     username: String,
     chat_id: &str,
     stype: SubscriptionType,
 ) -> Result<(), anyhow::Error>
 where
-    Api: DatabaseInfoProvider
-        + ApiContentReceiver
-        + ApiUserInfoReceiver
-        + FromEnv<Api>
-        + ApiAlive
-        + Sync
-        + Send,
-    <Api as ApiContentReceiver>::Out: GetId,
-    <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
+    Api: DatabaseInfoProvider + ApiName,
 {
     let db = super::create_db().await?;
 
@@ -311,29 +421,15 @@ where
             .await?;
         Ok(())
     } else {
-        let api = Api::from_env();
-        let (user_info, content) = loop {
-            if !api.is_alive().await {
-                api.try_make_alive().await?;
-                continue;
-            }
-            let user_info = api.get_user_info(&username).await;
-            if let Ok(user_info) = user_info {
-                let content = api.get_content(&user_info.id(), 5, stype).await;
-                if content.is_ok() {
-                    break (user_info, content.unwrap());
-                }
-            }
+        let model = RequestModel {
+            chat_id: chat_id.to_string(),
+            stype,
+            user: username.to_string(),
+            api: Api::api_type(),
         };
-        for item in content {
-            db.add_content::<Api>(&item.id(), &username, stype).await?;
-        }
-        db.subscribe_user::<Api>(&user_info.username(), &chat_id, stype)
-            .await?;
-        cx.answer(format!(
-            "Successfully subscribed to {} aka {}",
-            &username,
-            &user_info.nickname()
+        req_sender.send(UserRequest::Subscribe(model))?;
+        cx.reply_to(format!(
+            "Added to the queue. You will be notified once we subscribe"
         ))
         .await?;
         Ok(())

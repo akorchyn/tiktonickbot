@@ -3,7 +3,7 @@ use reqwest;
 use std::env;
 
 use crate::api::{
-    ApiAlive, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload, DataType,
+    Api, ApiAlive, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload, DataType,
     DatabaseInfoProvider, GenerateSubscriptionMessage, GetId, ReturnDataForDownload,
     ReturnTextInfo, ReturnUserInfo, SubscriptionType,
 };
@@ -170,6 +170,9 @@ impl ApiName for TiktokApi {
     fn name() -> &'static str {
         "Tiktok"
     }
+    fn api_type() -> Api {
+        Api::Tiktok
+    }
 }
 
 impl DatabaseInfoProvider for TiktokApi {
@@ -215,12 +218,16 @@ impl ApiContentReceiver for TiktokApi {
 #[async_trait]
 impl ApiUserInfoReceiver for TiktokApi {
     type Out = UserInfo;
-    async fn get_user_info(&self, id: &str) -> Result<UserInfo, anyhow::Error> {
+    async fn get_user_info(&self, id: &str) -> Result<Option<UserInfo>, anyhow::Error> {
         // Count parameter would be ignored by server
         let response = reqwest::get(self.create_query("user_info", id, 0)).await?;
-        let text = response.text().await?;
-        let data = serde_json::from_str::<UserInfo>(&text)?;
-        Ok(data)
+        if response.status() == 404 {
+            Ok(None)
+        } else {
+            let text = response.text().await?;
+            let data = serde_json::from_str::<UserInfo>(&text)?;
+            Ok(Some(data))
+        }
     }
 }
 

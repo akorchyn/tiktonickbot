@@ -1,9 +1,9 @@
 import string
 from flask import Flask, request, abort
 from TikTokApi import TikTokApi
+from TikTokApi.exceptions import TikTokNotFoundError
 import json
 import os
-import random
 from functools import wraps
 from stem import Signal
 from stem.control import Controller
@@ -29,7 +29,11 @@ def user_info():
     username = request.args.get('username', type=str)
     if username is None:
         return ""
-    return json.dumps(api.get_user_object(username, custom_verifyFp=custom_cookie))
+    try:
+        return json.dumps(api.get_user_object(username, custom_verifyFp=custom_cookie))
+    except TikTokNotFoundError as e:
+        abort(404)
+
 
 @app.route("/api/user_videos/", methods=['GET'])
 @checkAppKey

@@ -4,9 +4,14 @@ pub(crate) mod twitter;
 use anyhow;
 use async_trait::async_trait;
 use serde::Deserialize;
-use std::future::Future;
 
 use teloxide::types::ParseMode;
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub(crate) enum Api {
+    Tiktok,
+    Twitter,
+}
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub(crate) enum SubscriptionType {
@@ -24,6 +29,7 @@ impl SubscriptionType {
 
 pub(crate) trait ApiName {
     fn name() -> &'static str;
+    fn api_type() -> Api;
 }
 
 pub(crate) trait GetId {
@@ -39,7 +45,7 @@ pub(crate) trait ApiAlive {
 #[async_trait]
 pub(crate) trait ApiUserInfoReceiver {
     type Out;
-    async fn get_user_info(&self, id: &str) -> Result<Self::Out, anyhow::Error>;
+    async fn get_user_info(&self, id: &str) -> Result<Option<Self::Out>, anyhow::Error>;
 }
 
 #[async_trait]

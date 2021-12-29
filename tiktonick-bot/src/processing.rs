@@ -12,10 +12,23 @@ use std::io;
 use std::path::Path;
 
 use crate::api::{
-    DataForDownload, GenerateSubscriptionMessage, ReturnDataForDownload, ReturnTextInfo,
+    Api, DataForDownload, GenerateSubscriptionMessage, ReturnDataForDownload, ReturnTextInfo,
     ReturnUserInfo, SubscriptionType,
 };
 use crate::database::MongoDatabase;
+
+#[derive(Debug)]
+pub(crate) struct RequestModel {
+    chat_id: String,
+    stype: SubscriptionType,
+    user: String,
+    api: Api,
+}
+
+pub(crate) enum UserRequest {
+    LastNData(RequestModel, u8),
+    Subscribe(RequestModel),
+}
 
 async fn create_db() -> Result<MongoDatabase, anyhow::Error> {
     if let Ok(con) = env::var("TIKTOK_BOT_MONGO_CON_STRING") {

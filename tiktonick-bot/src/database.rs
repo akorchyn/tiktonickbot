@@ -320,4 +320,22 @@ impl MongoDatabase {
         }
         Ok(false)
     }
+
+    pub(crate) async fn is_user_exist<Api: DatabaseInfoProvider>(
+        &self,
+        user_id: &str,
+        stype: SubscriptionType,
+    ) -> Result<bool, anyhow::Error> {
+        let collection = self.db.collection::<User>(Api::user_collection_name());
+        let query = doc! {
+            "id": &user_id
+        };
+        let option: Option<User> = collection.find_one(query, None).await?;
+        if let Some(user) = option {
+            if let Some(chats) = user.get_chats_by_subscription_type(stype) {
+                return Ok(!chats.is_empty());
+            }
+        }
+        Ok(false)
+    }
 }

@@ -3,7 +3,7 @@ use reqwest::{self, Client};
 use std::env;
 
 use crate::api::{
-    ApiAlive, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload, DataType,
+    Api, ApiAlive, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload, DataType,
     DatabaseInfoProvider, FromEnv, GenerateSubscriptionMessage, GetId, ReturnDataForDownload,
     ReturnTextInfo, ReturnUserInfo, SubscriptionType,
 };
@@ -74,7 +74,7 @@ pub(crate) struct TwitterApi {
 }
 
 impl TwitterApi {
-    async fn get_data<T>(&self, uri: String) -> Result<T, anyhow::Error>
+    async fn get_data<T>(&self, uri: String) -> Result<Option<T>, anyhow::Error>
     where
         for<'a> T: Deserialize<'a>,
     {
@@ -85,8 +85,12 @@ impl TwitterApi {
             .send()
             .await?;
         let text = response.text().await?;
-        let data = serde_json::from_str::<T>(&text)?;
-        Ok(data)
+        let data = serde_json::from_str::<T>(&text);
+        if let Ok(data) = data {
+            Ok(Some(data))
+        } else {
+            Ok(None)
+        }
     }
 
     fn subscription_type_to_api_uri(
@@ -124,6 +128,9 @@ impl ApiAlive for TwitterApi {
 impl ApiName for TwitterApi {
     fn name() -> &'static str {
         "Twitter"
+    }
+    fn api_type() -> Api {
+        Api::Twitter
     }
 }
 
@@ -182,58 +189,62 @@ impl ApiContentReceiver for TwitterApi {
         let tweets = self
             .get_data::<Tweets>(TwitterApi::subscription_type_to_api_uri(stype, id, count))
             .await?;
-        let media = tweets.includes.media.unwrap_or(Vec::new());
+        if let Some(tweets) = tweets {
+            let media = tweets.includes.media.unwrap_or(Vec::new());
 
-        Ok(tweets
-            .data
-            .into_iter()
-            .map(|tweet| {
-                let user_info = tweets
-                    .includes
-                    .users
-                    .iter()
-                    .find(|i| tweet.author_id == i.id)
-                    .expect("Api should provide users info");
-                let attachments = if tweet.attachments.is_some() && !media.is_empty() {
-                    let mut attachments = Vec::new();
-                    for media_key in tweet.attachments.unwrap().media_keys.into_iter() {
-                        let elem = media.iter().find(|elem| elem.media_key == media_key);
-                        // Unfortunately,currently twitter API v2 support not all media types
-                        if let Some(elem) = elem {
-                            let result = elem.url.as_ref().or(elem.preview_image_url.as_ref());
-                            if let Some(url) = result {
-                                attachments.push(DataForDownload {
-                                    url: url.clone(),
-                                    name: media_key,
-                                    data_type: DataType::Image,
-                                });
+            Ok(tweets
+                .data
+                .into_iter()
+                .map(|tweet| {
+                    let user_info = tweets
+                        .includes
+                        .users
+                        .iter()
+                        .find(|i| tweet.author_id == i.id)
+                        .expect("Api should provide users info");
+                    let attachments = if tweet.attachments.is_some() && !media.is_empty() {
+                        let mut attachments = Vec::new();
+                        for media_key in tweet.attachments.unwrap().media_keys.into_iter() {
+                            let elem = media.iter().find(|elem| elem.media_key == media_key);
+                            // Unfortunately,currently twitter API v2 support not all media types
+                            if let Some(elem) = elem {
+                                let result = elem.url.as_ref().or(elem.preview_image_url.as_ref());
+                                if let Some(url) = result {
+                                    attachments.push(DataForDownload {
+                                        url: url.clone(),
+                                        name: media_key,
+                                        data_type: DataType::Image,
+                                    });
+                                }
                             }
                         }
+                        Some(attachments)
+                    } else {
+                        None
+                    };
+                    Tweet {
+                        id: tweet.id,
+                        text: tweet.text,
+                        name: user_info.name.clone(),
+                        username: user_info.username.clone(),
+                        attachments,
                     }
-                    Some(attachments)
-                } else {
-                    None
-                };
-                Tweet {
-                    id: tweet.id,
-                    text: tweet.text,
-                    name: user_info.name.clone(),
-                    username: user_info.username.clone(),
-                    attachments,
-                }
-            })
-            .collect())
+                })
+                .collect())
+        } else {
+            Ok(Vec::new())
+        }
     }
 }
 
 #[async_trait]
 impl ApiUserInfoReceiver for TwitterApi {
     type Out = UserInfo;
-    async fn get_user_info(&self, id: &str) -> Result<UserInfo, anyhow::Error> {
+    async fn get_user_info(&self, id: &str) -> Result<Option<UserInfo>, anyhow::Error> {
         let user_info = self
             .get_data::<UserApiResponse>(format!("2/users/by/username/{}", id))
             .await?;
-        Ok(user_info.data)
+        Ok(user_info.and_then(|user_info| Some(user_info.data)))
     }
 }
 
