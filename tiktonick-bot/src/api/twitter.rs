@@ -136,14 +136,15 @@ impl ApiName for TwitterApi {
 
 impl GenerateSubscriptionMessage<UserInfo, Tweet> for TwitterApi {
     fn subscription_message(user: &UserInfo, tweet: &Tweet, stype: SubscriptionType) -> String {
+        let tweet_link = format!("https://twitter.com/{}/status/{}", tweet.username, tweet.id);
         match stype {
             SubscriptionType::Likes => format!(
-                "<i><a href=\"https://www.twitter.com/{}\">{}</a> liked tweet from <a href=\"https://www.twitter.com/{}\">{}</a>:</i>\n\n{}",
-                user.username, user.name, tweet.username, tweet.name, tweet.text
+                "<i><a href=\"https://www.twitter.com/{}\">{}</a> liked <a href=\"{}\">tweet</a> from <a href=\"https://www.twitter.com/{}\">{}</a>:</i>\n\n{}",
+                user.username, user.name, tweet_link, tweet.username, tweet.name, tweet.text
             ),
             SubscriptionType::Content => format!(
-                "<i><a href=\"https://www.twitter.com/{}\">{}</a> tweet:</i>\n\n{}",
-                tweet.username, tweet.name, tweet.text
+                "<i><a href=\"https://www.twitter.com/{}\">{}</a> posted <a href=\"{}\">tweet</a>:</i>\n\n{}",
+                tweet.username, tweet.name, tweet_link, tweet.text
             ),
         }
     }

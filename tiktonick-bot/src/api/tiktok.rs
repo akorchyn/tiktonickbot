@@ -9,8 +9,10 @@ use crate::api::{
 };
 use anyhow;
 use async_trait::async_trait;
+use html_escape;
 use serde::{self, Deserialize};
 use serde_json;
+use teloxide::types::ParseMode::Html;
 
 #[derive(Deserialize, Debug)]
 pub(crate) struct UserInfo {
@@ -77,23 +79,29 @@ impl GenerateSubscriptionMessage<UserInfo, Video> for TiktokApi {
         video: &Video,
         stype: SubscriptionType,
     ) -> String {
+        let video_link = format!(
+            "https://tiktok.com/@{}/video/{}",
+            video.unique_user_id, video.id
+        );
+
         match stype {
             SubscriptionType::Likes => format!(
-                "User {} aka {} liked video from {} aka {}.\n\nDescription:\n{}",
+                "<i>User <a href=\"https://tiktok.com/@{}\">{}</a> liked <a href=\"{}\">video</a> from <a href=\"https://tiktok.com/@{}\">{}</a>:</i>\n\n{}",
                 user_info.unique_user_id,
                 user_info.nickname,
+                video_link,
                 video.unique_user_id,
                 video.nickname,
                 video.description
             ),
             SubscriptionType::Content => format!(
-                "User {} aka {} posted video.\n\nDescription:\n{}",
-                video.unique_user_id, video.nickname, video.description
+                "<i>User <a href=\"https://tiktok.com/@{}\">{}</a> posted <a href=\"{}\">video</a></i>:\n\n{}",
+                video.unique_user_id, video.nickname, video_link, video.description
             ),
         }
     }
     fn subscription_format() -> Option<super::ParseMode> {
-        None
+        Some(Html)
     }
 }
 
@@ -115,7 +123,7 @@ impl TiktokApi {
                 id: item.video.id,
                 unique_user_id: item.author.unique_user_id,
                 nickname: item.author.nickname,
-                description: item.description,
+                description: html_escape::encode_text(&item.description).to_string(),
                 download_address: item.video.download_address,
             })
             .collect())
