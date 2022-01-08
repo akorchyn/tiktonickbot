@@ -25,7 +25,7 @@ selenium-stealth==1.0.6
 six==1.16.0
 sniffio==1.2.0
 sortedcontainers==2.4.0
-TikTokApi==4.1.0
+git+https://github.com/Daan-Grashoff/TikTok-Api
 trio==0.19.0
 trio-websocket==0.9.2
 typing_extensions==4.0.1
