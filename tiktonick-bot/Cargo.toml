@@ -15,7 +15,6 @@ futures = "0.3"
 teloxide = { version = "0.6", features = ["macros", "auto-send"] }
 mongodb = { version = "2.0.2", features = ["tokio-runtime"] }
 async-trait = "0.1.52"
-tokio-stream = "0.1.8"
 html-escape = "0.2.9"
 
 # General
