@@ -1,6 +1,6 @@
 use crate::api::*;
 
-use teloxide::prelude::*;
+use teloxide::prelude2::*;
 
 use crate::api::tiktok::TiktokApi;
 use crate::api::twitter::TwitterApi;

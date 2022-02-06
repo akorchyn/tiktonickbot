@@ -1,7 +1,7 @@
 use std::env;
 use std::fs;
 
-use teloxide::prelude::*;
+use teloxide::prelude2::*;
 
 mod api;
 mod database;

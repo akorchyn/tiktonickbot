@@ -3,7 +3,7 @@ pub(crate) mod updater;
 
 use futures::future::join_all;
 use futures::FutureExt;
-use teloxide::prelude::*;
+use teloxide::prelude2::*;
 use teloxide::types::{InputFile, InputMedia, InputMediaPhoto, InputMediaVideo};
 
 use std::env;
@@ -75,7 +75,7 @@ where
             .into_iter()
             .map(|item| {
                 let filename = format!("content/{}.{}", item.name, item.data_type.to_extension());
-                let media = InputFile::File(Path::new(&filename).to_path_buf());
+                let media = InputFile::file(Path::new(&filename));
                 let caption = if is_first {
                     is_first = false;
                     Some(Api::subscription_message(&user_info, &content, stype))
