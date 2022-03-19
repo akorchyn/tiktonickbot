@@ -1,4 +1,6 @@
-# tiktonickbot
+## tiktonickbot
+
+![Build](https://github.com/akorchyn/tiktonickbot/actions/workflows/rust.yml/badge.svg)
 
 Tiktonick is a bot that would help you to follow users on a variety of social media. 
 The idea is to aggregate a variety of accounts into one personal feed, so you would be able to subscribe and get one feed.
