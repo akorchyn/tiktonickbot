@@ -102,6 +102,7 @@ impl SubscriptionType {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct MongoDatabase {
     db: Database,
 }

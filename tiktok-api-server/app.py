@@ -53,6 +53,14 @@ def user_likes():
         return ""
     return json.dumps(api.user_liked_by_username(username, count, custom_verifyFp=custom_cookie))
 
+@app.route("/api/video_by_id/", methods=['GET'])
+@checkAppKey
+def video_by_id():
+    video_id = request.args.get('video_id', type=int)
+    if video_id is None:
+        return ""
+    return json.dumps([api.get_tiktok_by_id(id=video_id, custom_verifyFp=custom_cookie).get('itemInfo').get('itemStruct')])
+
 @app.route("/api/status/", methods=['GET'])
 @checkAppKey
 def status():

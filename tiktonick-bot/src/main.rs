@@ -6,6 +6,7 @@ use teloxide::prelude2::*;
 mod api;
 mod database;
 mod processing;
+mod regexp;
 
 use std::sync::mpsc::sync_channel;
 

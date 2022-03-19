@@ -4,16 +4,22 @@ use std::env;
 
 use crate::api::{
     Api, ApiAlive, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload, DataType,
-    DatabaseInfoProvider, FromEnv, GenerateSubscriptionMessage, GetId, ReturnDataForDownload,
-    ReturnTextInfo, ReturnUserInfo, SubscriptionType,
+    DatabaseInfoProvider, FromEnv, GenerateMessage, GetId, OutputType, ReturnDataForDownload,
+    ReturnTextInfo, ReturnUserInfo, ReturnUsername, SubscriptionType,
 };
-use anyhow;
-use anyhow::Error;
+use crate::regexp;
+
+use anyhow::{anyhow, Error};
 use async_trait::async_trait;
 use serde::{self, Deserialize};
 use serde_json;
 use teloxide::types::ParseMode;
 use teloxide::types::ParseMode::Html;
+
+static TWEET_FIELDS: &str =
+    "id,text,attachments,author_id,in_reply_to_user_id,referenced_tweets,source";
+static EXPANSIONS: &str = "author_id,attachments.media_keys";
+static MEDIA_FIELDS: &str = "preview_image_url,url,media_key";
 
 #[derive(Debug, Deserialize, Default)]
 pub(crate) struct UserInfo {
@@ -26,7 +32,7 @@ impl ReturnUserInfo for UserInfo {
     fn id(&self) -> &str {
         &self.id
     }
-    fn username(&self) -> &str {
+    fn unique_user_name(&self) -> &str {
         &self.username
     }
     fn nickname(&self) -> &str {
@@ -41,6 +47,12 @@ pub(crate) struct Tweet {
     pub(crate) name: String,
     pub(crate) username: String,
     pub(crate) attachments: Option<Vec<DataForDownload>>,
+}
+
+impl ReturnUsername for Tweet {
+    fn username(&self) -> &str {
+        &self.username
+    }
 }
 
 impl GetId for Tweet {
@@ -74,7 +86,7 @@ pub(crate) struct TwitterApi {
 }
 
 impl TwitterApi {
-    async fn get_data<T>(&self, uri: String) -> Result<Option<T>, anyhow::Error>
+    async fn get_data<T>(&self, uri: String) -> anyhow::Result<Option<T>>
     where
         for<'a> T: Deserialize<'a>,
     {
@@ -89,6 +101,7 @@ impl TwitterApi {
         if let Ok(data) = data {
             Ok(Some(data))
         } else {
+            log::warn!("{}", data.err().unwrap());
             Ok(None)
         }
     }
@@ -98,10 +111,6 @@ impl TwitterApi {
         user_id: &str,
         max_results: u8,
     ) -> String {
-        static TWEET_FIELDS: &str =
-            "id,text,attachments,author_id,in_reply_to_user_id,referenced_tweets,source";
-        static EXPANSIONS: &str = "author_id,attachments.media_keys";
-        static MEDIA_FIELDS: &str = "preview_image_url,url,media_key";
         let api = match stype {
             SubscriptionType::Content => "tweets",
             SubscriptionType::Likes => "liked_tweets",
@@ -134,22 +143,30 @@ impl ApiName for TwitterApi {
     }
 }
 
-impl GenerateSubscriptionMessage<UserInfo, Tweet> for TwitterApi {
-    fn subscription_message(user: &UserInfo, tweet: &Tweet, stype: SubscriptionType) -> String {
+impl GenerateMessage<UserInfo, Tweet> for TwitterApi {
+    fn message(user: &UserInfo, tweet: &Tweet, output: &OutputType) -> String {
         let tweet_link = format!("https://twitter.com/{}/status/{}", tweet.username, tweet.id);
-        match stype {
-            SubscriptionType::Likes => format!(
-                "<i><a href=\"https://www.twitter.com/{}\">{}</a> liked <a href=\"{}\">tweet</a> from <a href=\"https://www.twitter.com/{}\">{}</a>:</i>\n\n{}",
-                user.username, user.name, tweet_link, tweet.username, tweet.name, tweet.text
-            ),
-            SubscriptionType::Content => format!(
-                "<i><a href=\"https://www.twitter.com/{}\">{}</a> posted <a href=\"{}\">tweet</a>:</i>\n\n{}",
-                tweet.username, tweet.name, tweet_link, tweet.text
-            ),
+        match output {
+            OutputType::BySubscription(stype) => {
+                match stype {
+                    SubscriptionType::Likes => format!(
+                        "<i><a href=\"https://www.twitter.com/{}\">{}</a> liked <a href=\"{}\">tweet</a> from <a href=\"https://www.twitter.com/{}\">{}</a>:</i>\n\n{}",
+                        user.username, user.name, tweet_link, tweet.username, tweet.name, tweet.text
+                    ),
+                    SubscriptionType::Content => format!(
+                        "<i><a href=\"https://www.twitter.com/{}\">{}</a> posted <a href=\"{}\">tweet</a>:</i>\n\n{}",
+                        tweet.username, tweet.name, tweet_link, tweet.text
+                    ),
+                }
+            }
+        OutputType::ByLink(tguser) => {
+                format!("<i><a href=\"tg://user?id={}\">{}</a> shared <a href=\"{}\">tweet</a>:</i>\n\n{}",
+                    tguser.id, tguser.name, tweet_link, tweet.text)
+            }
         }
     }
 
-    fn subscription_format() -> Option<ParseMode> {
+    fn message_format() -> Option<ParseMode> {
         Some(Html)
     }
 }
@@ -188,54 +205,83 @@ impl ApiContentReceiver for TwitterApi {
     ) -> Result<Vec<Tweet>, anyhow::Error> {
         let count = count.min(100).max(5);
         let tweets = self
-            .get_data::<Tweets>(TwitterApi::subscription_type_to_api_uri(stype, id, count))
+            .get_data::<TwitterTweetResult>(TwitterApi::subscription_type_to_api_uri(
+                stype, id, count,
+            ))
             .await?;
         if let Some(tweets) = tweets {
-            let media = tweets.includes.media.unwrap_or(Vec::new());
-
-            Ok(tweets
-                .data
-                .into_iter()
-                .map(|tweet| {
-                    let user_info = tweets
-                        .includes
-                        .users
-                        .iter()
-                        .find(|i| tweet.author_id == i.id)
-                        .expect("Api should provide users info");
-                    let attachments = if tweet.attachments.is_some() && !media.is_empty() {
-                        let mut attachments = Vec::new();
-                        for media_key in tweet.attachments.unwrap().media_keys.into_iter() {
-                            let elem = media.iter().find(|elem| elem.media_key == media_key);
-                            // Unfortunately,currently twitter API v2 support not all media types
-                            if let Some(elem) = elem {
-                                let result = elem.url.as_ref().or(elem.preview_image_url.as_ref());
-                                if let Some(url) = result {
-                                    attachments.push(DataForDownload {
-                                        url: url.clone(),
-                                        name: media_key,
-                                        data_type: DataType::Image,
-                                    });
-                                }
-                            }
-                        }
-                        Some(attachments)
-                    } else {
-                        None
-                    };
-                    Tweet {
-                        id: tweet.id,
-                        text: tweet.text,
-                        name: user_info.name.clone(),
-                        username: user_info.username.clone(),
-                        attachments,
-                    }
-                })
-                .collect())
+            Ok(process_tweet_data(tweets).await?)
         } else {
             Ok(Vec::new())
         }
     }
+
+    async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Tweet> {
+        for cap in regexp::TWITTER_LINK.captures(link) {
+            log::info!("Started processing request");
+            let tweets = self
+                .get_data::<TwitterTweetResult>(format!(
+                    "2/tweets/{}?tweet.fields={}&expansions={}&media.fields={}",
+                    &cap[3], TWEET_FIELDS, EXPANSIONS, MEDIA_FIELDS
+                ))
+                .await?;
+            if let Some(tweets) = tweets {
+                log::info!("Started parsing received data");
+                if let Some(tweet) = process_tweet_data(tweets).await?.pop() {
+                    return Ok(tweet);
+                }
+            }
+        }
+        return Err(anyhow!("Error processing {}", link));
+    }
+}
+
+async fn process_tweet_data(tweets: TwitterTweetResult) -> Result<Vec<Tweet>, anyhow::Error> {
+    let media = tweets.includes.media.unwrap_or(Vec::new());
+
+    let data = match tweets.data {
+        Data::Array(vec) => vec,
+        Data::Single(elem) => vec![elem],
+    };
+
+    Ok(data
+        .into_iter()
+        .map(|tweet| {
+            let user_info = tweets
+                .includes
+                .users
+                .iter()
+                .find(|i| tweet.author_id == i.id)
+                .expect("Api should provide users info");
+            let attachments = if tweet.attachments.is_some() && !media.is_empty() {
+                let mut attachments = Vec::new();
+                for media_key in tweet.attachments.unwrap().media_keys.into_iter() {
+                    let elem = media.iter().find(|elem| elem.media_key == media_key);
+                    // Unfortunately,currently twitter API v2 support not all media types
+                    if let Some(elem) = elem {
+                        let result = elem.url.as_ref().or(elem.preview_image_url.as_ref());
+                        if let Some(url) = result {
+                            attachments.push(DataForDownload {
+                                url: url.clone(),
+                                name: media_key,
+                                data_type: DataType::Image,
+                            });
+                        }
+                    }
+                }
+                Some(attachments)
+            } else {
+                None
+            };
+            Tweet {
+                id: tweet.id,
+                text: tweet.text,
+                name: user_info.name.clone(),
+                username: user_info.username.clone(),
+                attachments,
+            }
+        })
+        .collect())
 }
 
 #[async_trait]
@@ -275,9 +321,16 @@ struct TweetRespond {
     attachments: Option<TweetAttachments>,
 }
 
-#[derive(Debug, Deserialize, Default)]
-struct Tweets {
-    data: Vec<TweetRespond>,
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum Data {
+    Array(Vec<TweetRespond>),
+    Single(TweetRespond),
+}
+
+#[derive(Debug, Deserialize)]
+struct TwitterTweetResult {
+    data: Data,
     includes: Includes,
 }
 

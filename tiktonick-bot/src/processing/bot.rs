@@ -5,7 +5,8 @@ use crate::api::tiktok::TiktokApi;
 use crate::api::twitter::TwitterApi;
 use crate::api::*;
 use crate::database::MongoDatabase;
-use crate::processing::{RequestModel, UserRequest};
+use crate::processing::{LinkInfo, RequestModel, UserRequest};
+use crate::regexp;
 
 #[derive(BotCommand, Clone)]
 #[command(rename = "lowercase", description = "These commands are supported:")]
@@ -131,13 +132,20 @@ pub(crate) async fn run(bot: AutoSend<Bot>, req_sender: SyncSender<UserRequest>)
             })
             .filter_command::<MaintainerCommands>()
             .endpoint(maintainer_handling),
+        )
+        .branch(
+            dptree::filter(|msg: Message| {
+                let text = msg.text().unwrap_or_default();
+                regexp::TWITTER_LINK.is_match(text)
+                    || regexp::TIKTOK_FULL_LINK.is_match(text)
+                    || regexp::TIKTOK_SHORT_LINK.is_match(text)
+            })
+            .endpoint(link_handler),
         );
 
     Dispatcher::builder(bot, handler)
         .dependencies(dptree::deps![parameters])
-        .default_handler(|upd| async move {
-            log::warn!("Unhandled update: {:?}", upd);
-        })
+        .default_handler(|_| async move {})
         .error_handler(LoggingErrorHandler::with_custom_text(
             "An error has occurred in the dispatcher",
         ))
@@ -145,6 +153,54 @@ pub(crate) async fn run(bot: AutoSend<Bot>, req_sender: SyncSender<UserRequest>)
         .setup_ctrlc_handler()
         .dispatch()
         .await;
+}
+
+async fn link_handler(
+    message: Message,
+    _: AutoSend<Bot>,
+    cfg: ConfigParameters,
+) -> anyhow::Result<()> {
+    let chat_id = message.chat_id().to_string();
+    if message.from().is_none() {
+        return Ok(());
+    }
+    let from = message.from().unwrap();
+    let tguser = TelegramUser {
+        id: from.id,
+        name: from.first_name.clone() + " " + &from.last_name.as_ref().unwrap_or(&String::new()),
+    };
+    let text = message.text().unwrap_or_default();
+    if text.is_empty() {
+        return Ok(());
+    }
+    for cap in regexp::TWITTER_LINK.captures(text) {
+        let link_info = LinkInfo {
+            chat_id: chat_id.clone(),
+            telegram_user: tguser.clone(),
+            api: Api::Twitter,
+            link: cap[1].to_string(),
+        };
+        cfg.req_sender.send(UserRequest::ProcessLink(link_info))?;
+    }
+    for cap in regexp::TIKTOK_FULL_LINK.captures(text) {
+        let link_info = LinkInfo {
+            chat_id: chat_id.clone(),
+            telegram_user: tguser.clone(),
+            api: Api::Tiktok,
+            link: cap[1].to_string(),
+        };
+        cfg.req_sender.send(UserRequest::ProcessLink(link_info))?;
+    }
+    for cap in regexp::TIKTOK_SHORT_LINK.captures(text) {
+        let link_info = LinkInfo {
+            chat_id: chat_id.clone(),
+            telegram_user: tguser.clone(),
+            api: Api::Tiktok,
+            link: cap[1].to_string(),
+        };
+        cfg.req_sender.send(UserRequest::ProcessLink(link_info))?;
+    }
+    Ok(())
 }
 
 async fn command_handling(
@@ -406,10 +462,7 @@ where
         + ApiName
         + ApiUserInfoReceiver
         + FromEnv<Api>
-        + GenerateSubscriptionMessage<
-            <Api as ApiUserInfoReceiver>::Out,
-            <Api as ApiContentReceiver>::Out,
-        >,
+        + GenerateMessage<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
     <Api as ApiContentReceiver>::Out: ReturnDataForDownload + ReturnTextInfo,
     <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
 {

@@ -4,12 +4,15 @@ use std::env;
 
 use crate::api::{
     Api, ApiAlive, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload, DataType,
-    DatabaseInfoProvider, GenerateSubscriptionMessage, GetId, ReturnDataForDownload,
-    ReturnTextInfo, ReturnUserInfo, SubscriptionType,
+    DatabaseInfoProvider, GenerateMessage, GetId, OutputType, ReturnDataForDownload,
+    ReturnTextInfo, ReturnUserInfo, ReturnUsername, SubscriptionType,
 };
+use crate::regexp;
+
 use anyhow;
 use async_trait::async_trait;
 use html_escape;
+use reqwest::redirect::Policy;
 use serde::{self, Deserialize};
 use serde_json;
 use teloxide::types::ParseMode::Html;
@@ -26,7 +29,7 @@ impl ReturnUserInfo for UserInfo {
     fn id(&self) -> &str {
         &self.unique_user_id
     }
-    fn username(&self) -> &str {
+    fn unique_user_name(&self) -> &str {
         &self.unique_user_id
     }
     fn nickname(&self) -> &str {
@@ -41,6 +44,12 @@ pub(crate) struct Video {
     pub(crate) nickname: String,
     pub(crate) download_address: String,
     pub(crate) description: String,
+}
+
+impl ReturnUsername for Video {
+    fn username(&self) -> &str {
+        &self.unique_user_id
+    }
 }
 
 impl GetId for Video {
@@ -73,34 +82,36 @@ pub(crate) struct TiktokApi {
     tiktok_domain: String,
 }
 
-impl GenerateSubscriptionMessage<UserInfo, Video> for TiktokApi {
-    fn subscription_message(
-        user_info: &UserInfo,
-        video: &Video,
-        stype: SubscriptionType,
-    ) -> String {
+impl GenerateMessage<UserInfo, Video> for TiktokApi {
+    fn message(user_info: &UserInfo, video: &Video, output: &OutputType) -> String {
         let video_link = format!(
             "https://tiktok.com/@{}/video/{}",
             video.unique_user_id, video.id
         );
-
-        match stype {
-            SubscriptionType::Likes => format!(
-                "<i>User <a href=\"https://tiktok.com/@{}\">{}</a> liked <a href=\"{}\">video</a> from <a href=\"https://tiktok.com/@{}\">{}</a>:</i>\n\n{}",
-                user_info.unique_user_id,
-                user_info.nickname,
-                video_link,
-                video.unique_user_id,
-                video.nickname,
-                video.description
-            ),
-            SubscriptionType::Content => format!(
-                "<i>User <a href=\"https://tiktok.com/@{}\">{}</a> posted <a href=\"{}\">video</a></i>:\n\n{}",
-                video.unique_user_id, video.nickname, video_link, video.description
-            ),
+        match output {
+            OutputType::BySubscription(stype) => {
+                match stype {
+                    SubscriptionType::Likes => format!(
+                        "<i>User <a href=\"https://tiktok.com/@{}\">{}</a> liked <a href=\"{}\">video</a> from <a href=\"https://tiktok.com/@{}\">{}</a>:</i>\n\n{}",
+                        user_info.unique_user_id,
+                        user_info.nickname,
+                        video_link,
+                        video.unique_user_id,
+                        video.nickname,
+                        video.description
+                    ),
+                    SubscriptionType::Content => format!(
+                        "<i>User <a href=\"https://tiktok.com/@{}\">{}</a> posted <a href=\"{}\">video</a></i>:\n\n{}",
+                        video.unique_user_id, video.nickname, video_link, video.description
+                    ),
+                }
+            }
+        OutputType::ByLink(tguser) => {
+            format!("<i>User <a href=\"tg://user?id={}\">{}</a> shared <a href=\"{}\">video</a></i>:\n\n{}", tguser.id, tguser.name, video_link, video.description)
+        }
         }
     }
-    fn subscription_format() -> Option<super::ParseMode> {
+    fn message_format() -> Option<super::ParseMode> {
         Some(Html)
     }
 }
@@ -220,6 +231,48 @@ impl ApiContentReceiver for TiktokApi {
             SubscriptionType::Likes => "user_likes",
         };
         TiktokApi::load_data(&self.create_query(query_param, id, count)).await
+    }
+
+    async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Video> {
+        let link = if regexp::TIKTOK_SHORT_LINK.is_match(link) {
+            // First of all, we have to convert shortened link to full-one.
+            let full_link = get_full_link(link).await?;
+            log::info!("Original link({}) converted to {}", &link, &full_link);
+            full_link
+        } else {
+            link.to_string()
+        };
+
+        for cap in regexp::TIKTOK_FULL_LINK.captures(&link) {
+            let video_id = &cap[3];
+            let mut data = TiktokApi::load_data(&format!(
+                "{}/api/video_by_id/?video_id={}&key={}",
+                &self.tiktok_domain, video_id, self.secret
+            ))
+            .await?;
+            if let Some(video) = data.pop() {
+                return Ok(video);
+            }
+        }
+        Err(anyhow::anyhow!("Failed to fetch video by link"))
+    }
+}
+
+async fn get_full_link(short_url: &str) -> anyhow::Result<String> {
+    let client = reqwest::ClientBuilder::new()
+        .redirect(Policy::limited(2))
+        .build()?;
+    match client
+        .head(short_url)
+        .header("User-Agent", "curl/7.22.0 (x86_64-pc-linux-gnu)") // For some reason reqwest hangs without it
+        .send()
+        .await
+    {
+        Ok(result) => Ok(result.url().to_string()),
+        Err(e) => {
+            log::warn!("Failed to send head request. {}", e);
+            Err(anyhow::anyhow!("Error: {}", e))
+        }
     }
 }
 

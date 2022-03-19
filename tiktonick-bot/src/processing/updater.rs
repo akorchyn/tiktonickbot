@@ -15,36 +15,56 @@ pub(crate) async fn run(bot: AutoSend<Bot>, request_queue: mpsc::Receiver<UserRe
     let db = create_db()
         .await
         .expect("Expected successful connection to DB");
-    let mut interval = tokio::time::interval(std::time::Duration::from_secs(120));
     let tiktok_api = TiktokApi::from_env();
     let twitter_api = TwitterApi::from_env();
-    let mut requests: Vec<UserRequest> = Vec::new();
+    tokio::spawn(update_loop_handler(bot.clone(), tiktok_api, db.clone()));
+    tokio::spawn(update_loop_handler(bot.clone(), twitter_api, db.clone()));
+    request_handler(bot, request_queue, db).await;
+}
 
+async fn request_handler(
+    bot: AutoSend<Bot>,
+    request_queue: mpsc::Receiver<UserRequest>,
+    db: MongoDatabase,
+) {
+    let mut requests: Vec<UserRequest> = Vec::new();
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
     loop {
         interval.tick().await;
-        log::info!("Processing queue");
+        log::info!("Started processing queue");
         fill_queue(&mut requests, &request_queue);
         process_queue(&bot, &db, &mut requests).await;
-        log::info!("Started updating Twitter feeds");
-        updates_monitor_run(&bot, &twitter_api, &db)
+    }
+}
+
+async fn update_loop_handler<Api>(bot: AutoSend<Bot>, api: Api, db: MongoDatabase)
+where
+    <Api as ApiContentReceiver>::Out: GetId + ReturnDataForDownload + ReturnTextInfo,
+    <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
+    Api: DatabaseInfoProvider
+        + ApiAlive
+        + ApiName
+        + ApiContentReceiver
+        + ApiUserInfoReceiver
+        + GenerateMessage<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
+{
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+    loop {
+        interval.tick().await;
+        updates_monitor_run(&bot, &api, &db)
             .await
             .unwrap_or_else(|e| {
-                log::error!("Twitter update run failed with an error: {}", e);
-            });
-        updates_monitor_run(&bot, &tiktok_api, &db)
-            .await
-            .unwrap_or_else(|e| {
-                log::error!("Twitter update run failed with an error: {}", e);
+                log::error!("{} update run failed with an error: {}", Api::name(), e);
             });
     }
 }
 
 fn fill_queue(sub_queue: &mut Vec<UserRequest>, sub_receiver: &mpsc::Receiver<UserRequest>) {
-    log::info!("Starting retrieval");
+    log::info!("Starting requests retrieval");
     for i in sub_receiver.try_iter() {
         sub_queue.push(i);
     }
-    log::info!("Finished retrieval");
+    log::info!("Finished requests retrieval");
 }
 
 async fn process_queue(bot: &AutoSend<Bot>, db: &MongoDatabase, req_queue: &mut Vec<UserRequest>) {
@@ -60,6 +80,10 @@ async fn process_queue(bot: &AutoSend<Bot>, db: &MongoDatabase, req_queue: &mut 
                 UserRequest::Subscribe(r) => match r.api {
                     Api::Twitter => subscribe::<TwitterApi>(&bot, &db, r).await,
                     Api::Tiktok => subscribe::<TiktokApi>(&bot, &db, r).await,
+                },
+                UserRequest::ProcessLink(l) => match l.api {
+                    Api::Twitter => process_link::<TwitterApi>(&bot, l).await,
+                    Api::Tiktok => process_link::<TiktokApi>(&bot, l).await,
                 },
             };
             if let Err(e) = &status {
@@ -77,6 +101,36 @@ async fn process_queue(bot: &AutoSend<Bot>, db: &MongoDatabase, req_queue: &mut 
     log::info!("Queue size after is: {}", req_queue.len());
 }
 
+async fn process_link<Api>(bot: &AutoSend<Bot>, link_info: &LinkInfo) -> anyhow::Result<()>
+where
+    Api: ApiContentReceiver
+        + ApiUserInfoReceiver
+        + FromEnv<Api>
+        + GenerateMessage<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
+    <Api as ApiContentReceiver>::Out: ReturnDataForDownload + ReturnTextInfo + ReturnUsername,
+    <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
+{
+    let api = Api::from_env();
+    let object = api.get_content_for_link(&link_info.link).await?;
+    log::info!("Fetching {} user data", object.username());
+    let user_info = api.get_user_info(&object.username()).await?;
+    if let Some(user_info) = user_info {
+        super::download_content(ContentForDownload::Element(&object)).await;
+        super::send_content(
+            &api,
+            &bot,
+            &user_info,
+            &link_info.chat_id,
+            &object,
+            OutputType::ByLink(link_info.telegram_user.clone()),
+        )
+        .await?;
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!("Failed to fetch user data"))
+    }
+}
+
 async fn last_n_data<Api>(
     bot: &AutoSend<Bot>,
     request_model: &RequestModel,
@@ -86,10 +140,7 @@ where
     Api: ApiContentReceiver
         + ApiUserInfoReceiver
         + FromEnv<Api>
-        + GenerateSubscriptionMessage<
-            <Api as ApiUserInfoReceiver>::Out,
-            <Api as ApiContentReceiver>::Out,
-        >,
+        + GenerateMessage<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
     <Api as ApiContentReceiver>::Out: ReturnDataForDownload + ReturnTextInfo,
     <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
 {
@@ -100,7 +151,7 @@ where
             .get_content(&user_info.id(), n, request_model.stype)
             .await?;
         data.truncate(n as usize);
-        super::download_content(&data).await;
+        super::download_content(ContentForDownload::Array(&data)).await;
         for i in data.into_iter().rev() {
             super::send_content(
                 &api,
@@ -108,7 +159,7 @@ where
                 &user_info,
                 &request_model.chat_id,
                 &i,
-                request_model.stype,
+                OutputType::BySubscription(request_model.stype),
             )
             .await?;
         }
@@ -153,7 +204,7 @@ where
                         .await?;
                 }
             }
-            db.subscribe_user::<Api>(&user_info.username(), &model.chat_id, model.stype)
+            db.subscribe_user::<Api>(&user_info.unique_user_name(), &model.chat_id, model.stype)
                 .await?;
             bot.send_message(
                 ChatId::Id(chat_id),
@@ -193,10 +244,7 @@ where
         + ApiName
         + ApiContentReceiver
         + ApiUserInfoReceiver
-        + GenerateSubscriptionMessage<
-            <Api as ApiUserInfoReceiver>::Out,
-            <Api as ApiContentReceiver>::Out,
-        >,
+        + GenerateMessage<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
 {
     if !api.is_alive().await {
         log::info!(
@@ -224,7 +272,7 @@ where
             db, content, &user.id, stype,
         )
         .await;
-        download_content(&content).await;
+        download_content(ContentForDownload::Array(&content)).await;
         for element in content.into_iter().rev() {
             let mut succeed = false;
             for chat in chats {
@@ -238,7 +286,14 @@ where
                     Api,
                     <Api as ApiUserInfoReceiver>::Out,
                     <Api as ApiContentReceiver>::Out,
-                >(&api, &bot, &user_info, chat, &element, stype)
+                >(
+                    &api,
+                    &bot,
+                    &user_info,
+                    chat,
+                    &element,
+                    OutputType::BySubscription(stype),
+                )
                 .await
                 {
                     Ok(_) => succeed = true,
@@ -271,10 +326,7 @@ where
         + ApiName
         + ApiContentReceiver
         + ApiUserInfoReceiver
-        + GenerateSubscriptionMessage<
-            <Api as ApiUserInfoReceiver>::Out,
-            <Api as ApiContentReceiver>::Out,
-        >,
+        + GenerateMessage<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
 {
     let users = db.get_collection::<Api, crate::database::User>().await?;
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(2));

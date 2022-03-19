@@ -12,7 +12,7 @@ use std::io;
 use std::path::Path;
 
 use crate::api::{
-    Api, DataForDownload, GenerateSubscriptionMessage, ReturnDataForDownload, ReturnTextInfo,
+    Api, DataForDownload, GenerateMessage, OutputType, ReturnDataForDownload, ReturnTextInfo,
     ReturnUserInfo, SubscriptionType,
 };
 use crate::database::MongoDatabase;
@@ -25,9 +25,18 @@ pub(crate) struct RequestModel {
     api: Api,
 }
 
+#[derive(Debug)]
+pub(crate) struct LinkInfo {
+    chat_id: String,
+    telegram_user: crate::api::TelegramUser,
+    api: Api,
+    link: String,
+}
+
 pub(crate) enum UserRequest {
     LastNData(RequestModel, u8),
     Subscribe(RequestModel),
+    ProcessLink(LinkInfo),
 }
 
 async fn create_db() -> Result<MongoDatabase, anyhow::Error> {
@@ -45,26 +54,20 @@ async fn send_content<Api, UserInfo, Content>(
     user_info: &UserInfo,
     chat_id: &str,
     content: &Content,
-    stype: SubscriptionType,
+    output_type: OutputType,
 ) -> Result<(), anyhow::Error>
 where
-    Api: GenerateSubscriptionMessage<UserInfo, Content>,
+    Api: GenerateMessage<UserInfo, Content>,
     UserInfo: ReturnUserInfo,
     Content: ReturnDataForDownload + ReturnTextInfo,
 {
     let chat_id: i64 = chat_id.parse().unwrap();
     if !content.is_data_for_download() {
-        (if let Some(v) = Api::subscription_format() {
-            bot.send_message(
-                chat_id,
-                Api::subscription_message(&user_info, &content, stype),
-            )
-            .parse_mode(v)
+        (if let Some(v) = Api::message_format() {
+            bot.send_message(chat_id, Api::message(&user_info, &content, &output_type))
+                .parse_mode(v)
         } else {
-            bot.send_message(
-                chat_id,
-                Api::subscription_message(&user_info, &content, stype),
-            )
+            bot.send_message(chat_id, Api::message(&user_info, &content, &output_type))
         })
         .disable_web_page_preview(true)
         .await?;
@@ -78,7 +81,7 @@ where
                 let media = InputFile::file(Path::new(&filename));
                 let caption = if is_first {
                     is_first = false;
-                    Some(Api::subscription_message(&user_info, &content, stype))
+                    Some(Api::message(&user_info, &content, &output_type))
                 } else {
                     None
                 };
@@ -86,14 +89,14 @@ where
                     crate::api::DataType::Image => InputMedia::Photo(InputMediaPhoto {
                         media,
                         caption,
-                        parse_mode: Api::subscription_format(),
+                        parse_mode: Api::message_format(),
                         caption_entities: None,
                     }),
                     crate::api::DataType::Video => InputMedia::Video(InputMediaVideo {
                         media,
                         thumb: None,
                         caption,
-                        parse_mode: Api::subscription_format(),
+                        parse_mode: Api::message_format(),
                         caption_entities: None,
                         width: None,
                         height: None,
@@ -143,24 +146,37 @@ async fn download(content: &DataForDownload) -> Result<(), anyhow::Error> {
     }
 }
 
-async fn download_content<T>(content: &Vec<T>)
+enum ContentForDownload<'a, T> {
+    Array(&'a Vec<T>),
+    Element(&'a T),
+}
+
+async fn download_content<'a, T>(content: ContentForDownload<'a, T>)
 where
     T: crate::api::ReturnDataForDownload,
 {
-    let futures: Vec<_> = content
-        .into_iter()
-        .map(|content| async {
-            let content = content.data();
+    async fn iterate_through_data_for_download(content: Vec<DataForDownload>) {
+        let futures: Vec<_> = content
+            .iter()
+            .map(|content| async {
+                download(content)
+                    .await
+                    .unwrap_or_else(|e| log::error!("Failed to download: {}", e.to_string()));
+            })
+            .collect();
+        join_all(futures).await;
+    }
+
+    match content {
+        ContentForDownload::Array(content) => {
             let futures: Vec<_> = content
-                .iter()
-                .map(|content| async {
-                    download(content)
-                        .await
-                        .unwrap_or_else(|e| log::error!("Failed to download: {}", e.to_string()));
-                })
+                .into_iter()
+                .map(|content| async { iterate_through_data_for_download(content.data()).await })
                 .collect();
             join_all(futures).await;
-        })
-        .collect();
-    join_all(futures).await;
+        }
+        ContentForDownload::Element(elem) => {
+            iterate_through_data_for_download(elem.data()).await;
+        }
+    }
 }

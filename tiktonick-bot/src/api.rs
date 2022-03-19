@@ -27,6 +27,18 @@ impl SubscriptionType {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct TelegramUser {
+    pub(crate) name: String,
+    pub(crate) id: i64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum OutputType {
+    BySubscription(SubscriptionType),
+    ByLink(TelegramUser),
+}
+
 pub(crate) trait ApiName {
     fn name() -> &'static str;
     fn api_type() -> Api;
@@ -57,16 +69,31 @@ pub(crate) trait ApiContentReceiver {
         count: u8,
         etype: SubscriptionType,
     ) -> Result<Vec<Self::Out>, anyhow::Error>;
+
+    async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Self::Out>;
 }
 
 pub(crate) trait FromEnv<Api> {
     fn from_env() -> Api;
 }
 
+pub(crate) trait ReturnUsername {
+    fn username(&self) -> &str;
+}
+
 pub(crate) trait ReturnUserInfo {
     fn id(&self) -> &str;
-    fn username(&self) -> &str;
+    fn unique_user_name(&self) -> &str;
     fn nickname(&self) -> &str;
+}
+
+impl<T> ReturnUsername for T
+where
+    T: ReturnUserInfo,
+{
+    fn username(&self) -> &str {
+        self.unique_user_name()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -100,13 +127,9 @@ pub(crate) trait ReturnTextInfo {
     fn text_info(&self) -> &str;
 }
 
-pub(crate) trait GenerateSubscriptionMessage<UserInfo, Content> {
-    fn subscription_message(
-        user_info: &UserInfo,
-        content: &Content,
-        stype: SubscriptionType,
-    ) -> String;
-    fn subscription_format() -> Option<ParseMode>;
+pub(crate) trait GenerateMessage<UserInfo, Content> {
+    fn message(user_info: &UserInfo, content: &Content, stype: &OutputType) -> String;
+    fn message_format() -> Option<ParseMode>;
 }
 
 pub(crate) trait DatabaseInfoProvider {
