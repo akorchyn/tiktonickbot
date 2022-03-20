@@ -173,32 +173,21 @@ async fn link_handler(
     if text.is_empty() {
         return Ok(());
     }
-    for cap in regexp::TWITTER_LINK.captures(text) {
-        let link_info = LinkInfo {
-            chat_id: chat_id.clone(),
-            telegram_user: tguser.clone(),
-            api: Api::Twitter,
-            link: cap[1].to_string(),
-        };
-        cfg.req_sender.send(UserRequest::ProcessLink(link_info))?;
-    }
-    for cap in regexp::TIKTOK_FULL_LINK.captures(text) {
-        let link_info = LinkInfo {
-            chat_id: chat_id.clone(),
-            telegram_user: tguser.clone(),
-            api: Api::Tiktok,
-            link: cap[1].to_string(),
-        };
-        cfg.req_sender.send(UserRequest::ProcessLink(link_info))?;
-    }
-    for cap in regexp::TIKTOK_SHORT_LINK.captures(text) {
-        let link_info = LinkInfo {
-            chat_id: chat_id.clone(),
-            telegram_user: tguser.clone(),
-            api: Api::Tiktok,
-            link: cap[1].to_string(),
-        };
-        cfg.req_sender.send(UserRequest::ProcessLink(link_info))?;
+    for (matches, api) in vec![
+        (regexp::TWITTER_LINK.find_iter(text), Api::Twitter),
+        (regexp::TIKTOK_FULL_LINK.find_iter(text), Api::Tiktok),
+        (regexp::TIKTOK_SHORT_LINK.find_iter(text), Api::Tiktok),
+    ] {
+        for m in matches {
+            let link_info = LinkInfo {
+                chat_id: chat_id.clone(),
+                telegram_user: tguser.clone(),
+                api,
+                link: m.as_str().to_string(),
+            };
+            log::info!("found {}", &link_info.link);
+            cfg.req_sender.send(UserRequest::ProcessLink(link_info))?;
+        }
     }
     Ok(())
 }
