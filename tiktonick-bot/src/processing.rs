@@ -64,10 +64,10 @@ where
     let chat_id: i64 = chat_id.parse().unwrap();
     if !content.is_data_for_download() {
         (if let Some(v) = Api::message_format() {
-            bot.send_message(chat_id, Api::message(&user_info, &content, &output_type))
+            bot.send_message(chat_id, Api::message(user_info, content, &output_type))
                 .parse_mode(v)
         } else {
-            bot.send_message(chat_id, Api::message(&user_info, &content, &output_type))
+            bot.send_message(chat_id, Api::message(user_info, content, &output_type))
         })
         .disable_web_page_preview(true)
         .await?;
@@ -81,7 +81,7 @@ where
                 let media = InputFile::file(Path::new(&filename));
                 let caption = if is_first {
                     is_first = false;
-                    Some(Api::message(&user_info, &content, &output_type))
+                    Some(Api::message(user_info, content, &output_type))
                 } else {
                     None
                 };
@@ -130,9 +130,7 @@ async fn download(content: &DataForDownload) -> Result<(), anyhow::Error> {
                     let bytes = data.bytes().await;
                     if let Ok(bytes) = bytes {
                         log::info!("Copying download data to file {}", &filename);
-                        if let Ok(_) = io::copy(&mut bytes.as_ref(), &mut file) {
-                            return true;
-                        }
+                        return io::copy(&mut bytes.as_ref(), &mut file).is_ok();
                     }
                 }
             }
@@ -151,7 +149,7 @@ enum ContentForDownload<'a, T> {
     Element(&'a T),
 }
 
-async fn download_content<'a, T>(content: ContentForDownload<'a, T>)
+async fn download_content<T>(content: ContentForDownload<'_, T>)
 where
     T: crate::api::ReturnDataForDownload,
 {
@@ -170,7 +168,7 @@ where
     match content {
         ContentForDownload::Array(content) => {
             let futures: Vec<_> = content
-                .into_iter()
+                .iter()
                 .map(|content| async { iterate_through_data_for_download(content.data()).await })
                 .collect();
             join_all(futures).await;

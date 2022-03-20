@@ -12,7 +12,6 @@ use crate::regexp;
 use anyhow::{anyhow, Error};
 use async_trait::async_trait;
 use serde::{self, Deserialize};
-use serde_json;
 use teloxide::types::ParseMode;
 use teloxide::types::ParseMode::Html;
 
@@ -188,8 +187,10 @@ impl DatabaseInfoProvider for TwitterApi {
 impl FromEnv<TwitterApi> for TwitterApi {
     fn from_env() -> TwitterApi {
         TwitterApi {
-            secret: env::var("TWITTER_API_BEARER_SECRET").unwrap_or("blahblah".to_string()),
-            twitter_domain: env::var("TWITTER_API_URL").unwrap_or("localhost:3000".to_string()),
+            secret: env::var("TWITTER_API_BEARER_SECRET")
+                .unwrap_or_else(|_| "blahblah".to_string()),
+            twitter_domain: env::var("TWITTER_API_URL")
+                .unwrap_or_else(|_| "localhost:3000".to_string()),
         }
     }
 }
@@ -217,7 +218,7 @@ impl ApiContentReceiver for TwitterApi {
     }
 
     async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Tweet> {
-        for cap in regexp::TWITTER_LINK.captures(link) {
+        if let Some(cap) = regexp::TWITTER_LINK.captures(link) {
             log::info!("Started processing request");
             let tweets = self
                 .get_data::<TwitterTweetResult>(format!(
@@ -237,7 +238,7 @@ impl ApiContentReceiver for TwitterApi {
 }
 
 async fn process_tweet_data(tweets: TwitterTweetResult) -> Result<Vec<Tweet>, anyhow::Error> {
-    let media = tweets.includes.media.unwrap_or(Vec::new());
+    let media = tweets.includes.media.unwrap_or_default();
 
     let data = match tweets.data {
         Data::Array(vec) => vec,
@@ -291,7 +292,7 @@ impl ApiUserInfoReceiver for TwitterApi {
         let user_info = self
             .get_data::<UserApiResponse>(format!("2/users/by/username/{}", id))
             .await?;
-        Ok(user_info.and_then(|user_info| Some(user_info.data)))
+        Ok(user_info.map(|user_info| user_info.data))
     }
 }
 

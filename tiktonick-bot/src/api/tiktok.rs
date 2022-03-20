@@ -1,7 +1,3 @@
-use reqwest;
-
-use std::env;
-
 use crate::api::{
     Api, ApiAlive, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload, DataType,
     DatabaseInfoProvider, GenerateMessage, GetId, OutputType, ReturnDataForDownload,
@@ -9,12 +5,10 @@ use crate::api::{
 };
 use crate::regexp;
 
-use anyhow;
 use async_trait::async_trait;
-use html_escape;
 use reqwest::redirect::Policy;
 use serde::{self, Deserialize};
-use serde_json;
+use std::env;
 use teloxide::types::ParseMode::Html;
 
 #[derive(Deserialize, Debug)]
@@ -126,7 +120,7 @@ impl TiktokApi {
 
     async fn load_data(query: &str) -> Result<Vec<Video>, anyhow::Error> {
         let response = reqwest::get(query).await?;
-        let text = response.text().await.unwrap_or("".to_string());
+        let text = response.text().await.unwrap_or_default();
         let likes = serde_json::from_str::<Vec<TiktokItem>>(&text)?;
         Ok(likes
             .into_iter()
@@ -168,7 +162,7 @@ impl ApiAlive for TiktokApi {
             self.tiktok_domain, self.secret
         ))
         .await
-        .and_then(|response| Ok(response.status() == 200))
+        .map(|response| response.status() == 200)
         .unwrap_or(false)
     }
 
@@ -211,8 +205,8 @@ impl DatabaseInfoProvider for TiktokApi {
 impl super::FromEnv<TiktokApi> for TiktokApi {
     fn from_env() -> TiktokApi {
         TiktokApi {
-            secret: env::var("TIKTOK_API_SECRET").unwrap_or("blahblah".to_string()),
-            tiktok_domain: env::var("TIKTOK_URL").unwrap_or("localhost:3000".to_string()),
+            secret: env::var("TIKTOK_API_SECRET").unwrap_or_else(|_| "blahblah".to_string()),
+            tiktok_domain: env::var("TIKTOK_URL").unwrap_or_else(|_| "localhost:3000".to_string()),
         }
     }
 }
@@ -243,7 +237,7 @@ impl ApiContentReceiver for TiktokApi {
             link.to_string()
         };
 
-        for cap in regexp::TIKTOK_FULL_LINK.captures(&link) {
+        if let Some(cap) = regexp::TIKTOK_FULL_LINK.captures(&link) {
             let video_id = &cap[3];
             let mut data = TiktokApi::load_data(&format!(
                 "{}/api/video_by_id/?video_id={}&key={}",

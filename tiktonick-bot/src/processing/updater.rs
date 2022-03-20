@@ -74,16 +74,16 @@ async fn process_queue(bot: &AutoSend<Bot>, db: &MongoDatabase, req_queue: &mut 
         .map(|request| async {
             let status = match &request {
                 UserRequest::LastNData(r, n) => match r.api {
-                    Api::Twitter => last_n_data::<TwitterApi>(&bot, r, *n).await,
-                    Api::Tiktok => last_n_data::<TiktokApi>(&bot, r, *n).await,
+                    Api::Twitter => last_n_data::<TwitterApi>(bot, r, *n).await,
+                    Api::Tiktok => last_n_data::<TiktokApi>(bot, r, *n).await,
                 },
                 UserRequest::Subscribe(r) => match r.api {
-                    Api::Twitter => subscribe::<TwitterApi>(&bot, &db, r).await,
-                    Api::Tiktok => subscribe::<TiktokApi>(&bot, &db, r).await,
+                    Api::Twitter => subscribe::<TwitterApi>(bot, db, r).await,
+                    Api::Tiktok => subscribe::<TiktokApi>(bot, db, r).await,
                 },
                 UserRequest::ProcessLink(l) => match l.api {
-                    Api::Twitter => process_link::<TwitterApi>(&bot, l).await,
-                    Api::Tiktok => process_link::<TiktokApi>(&bot, l).await,
+                    Api::Twitter => process_link::<TwitterApi>(bot, l).await,
+                    Api::Tiktok => process_link::<TiktokApi>(bot, l).await,
                 },
             };
             if let Err(e) = &status {
@@ -113,12 +113,12 @@ where
     let api = Api::from_env();
     let object = api.get_content_for_link(&link_info.link).await?;
     log::info!("Fetching {} user data", object.username());
-    let user_info = api.get_user_info(&object.username()).await?;
+    let user_info = api.get_user_info(object.username()).await?;
     if let Some(user_info) = user_info {
         super::download_content(ContentForDownload::Element(&object)).await;
         super::send_content(
             &api,
-            &bot,
+            bot,
             &user_info,
             &link_info.chat_id,
             &object,
@@ -148,14 +148,14 @@ where
     let user_info = api.get_user_info(&request_model.user).await?;
     if let Some(user_info) = user_info {
         let mut data = api
-            .get_content(&user_info.id(), n, request_model.stype)
+            .get_content(user_info.id(), n, request_model.stype)
             .await?;
         data.truncate(n as usize);
         super::download_content(ContentForDownload::Array(&data)).await;
         for i in data.into_iter().rev() {
             super::send_content(
                 &api,
-                &bot,
+                bot,
                 &user_info,
                 &request_model.chat_id,
                 &i,
@@ -198,13 +198,13 @@ where
         let user_info = api.get_user_info(&model.user).await?;
         if let Some(user_info) = user_info {
             if !db.is_user_exist::<Api>(&model.user, model.stype).await? {
-                let content = api.get_content(&user_info.id(), 5, model.stype).await?;
+                let content = api.get_content(user_info.id(), 5, model.stype).await?;
                 for item in content {
-                    db.add_content::<Api>(&item.id(), &model.user, model.stype)
+                    db.add_content::<Api>(item.id(), &model.user, model.stype)
                         .await?;
                 }
             }
-            db.subscribe_user::<Api>(&user_info.unique_user_name(), &model.chat_id, model.stype)
+            db.subscribe_user::<Api>(user_info.unique_user_name(), &model.chat_id, model.stype)
                 .await?;
             bot.send_message(
                 ChatId::Id(chat_id),
@@ -266,7 +266,7 @@ where
     let user_info = api.get_user_info(&user.id).await?;
     if let Some(user_info) = user_info {
         log::info!("{}: User {} processing started.", Api::name(), &user.id);
-        let content = api.get_content(&user_info.id(), 5, stype).await?;
+        let content = api.get_content(user_info.id(), 5, stype).await?;
         log::info!("{}: Received user {} data", Api::name(), &user.id);
         let content = filter_sent_videos::<Api, <Api as ApiContentReceiver>::Out>(
             db, content, &user.id, stype,
@@ -287,8 +287,8 @@ where
                     <Api as ApiUserInfoReceiver>::Out,
                     <Api as ApiContentReceiver>::Out,
                 >(
-                    &api,
-                    &bot,
+                    api,
+                    bot,
                     &user_info,
                     chat,
                     &element,
@@ -333,7 +333,7 @@ where
     for user in users {
         for stype in SubscriptionType::iterator() {
             interval.tick().await;
-            process_user::<Api>(&bot, &api, &db, &user, stype)
+            process_user::<Api>(bot, api, db, &user, stype)
                 .await
                 .unwrap_or_else(|e| {
                     log::warn!("{}: Failed to process user: {}", Api::name(), e.to_string());
@@ -351,7 +351,7 @@ async fn filter_sent_videos<Api: DatabaseInfoProvider, T: GetId>(
     stype: SubscriptionType,
 ) -> Vec<T> {
     let to_remove: Vec<_> = join_all(content.iter().map(|elem| async {
-        db.is_content_showed::<Api>(&elem.id(), &user_id, stype)
+        db.is_content_showed::<Api>(elem.id(), user_id, stype)
             .await
             .unwrap_or(true)
     }))

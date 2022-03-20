@@ -1,7 +1,6 @@
 use futures::stream::StreamExt;
 use serde::{Deserialize, Serialize};
 
-use anyhow;
 use mongodb::{
     bson::{doc, DateTime, Document},
     options::{ClientOptions, UpdateOptions},
@@ -114,7 +113,7 @@ impl MongoDatabase {
     ) -> Result<MongoDatabase, anyhow::Error> {
         let client_options = ClientOptions::parse(con_str).await?;
         let database_client = Client::with_options(client_options)?;
-        let database = database_client.database(&database);
+        let database = database_client.database(database);
 
         Ok(MongoDatabase { db: database })
     }
@@ -157,7 +156,7 @@ impl MongoDatabase {
         query: Document,
         data: Document,
     ) -> Result<(), anyhow::Error> {
-        let collection = self.db.collection::<Document>(&collection_name);
+        let collection = self.db.collection::<Document>(collection_name);
         let options = UpdateOptions::builder().upsert(true).build();
         collection
             .update_one(
@@ -297,7 +296,7 @@ impl MongoDatabase {
         let option: Option<DataStorage> = collection.find_one(query, None).await?;
         if let Some(videos) = option {
             if let Some(videos) = videos.get_videos_by_subscription_type(stype) {
-                return Ok(videos.into_iter().any(|video| video.id == video_id));
+                return Ok(videos.iter().any(|video| video.id == video_id));
             }
         }
         Ok(false)
@@ -316,7 +315,7 @@ impl MongoDatabase {
         let option: Option<User> = collection.find_one(query, None).await?;
         if let Some(user) = option {
             if let Some(chats) = user.get_chats_by_subscription_type(stype) {
-                return Ok(chats.into_iter().any(|id| chat_id == id));
+                return Ok(chats.iter().any(|id| chat_id == id));
             }
         }
         Ok(false)

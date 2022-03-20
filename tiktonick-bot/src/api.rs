@@ -1,7 +1,6 @@
 pub(crate) mod tiktok;
 pub(crate) mod twitter;
 
-use anyhow;
 use async_trait::async_trait;
 use serde::Deserialize;
 

@@ -167,7 +167,7 @@ async fn link_handler(
     let from = message.from().unwrap();
     let tguser = TelegramUser {
         id: from.id,
-        name: from.first_name.clone() + " " + &from.last_name.as_ref().unwrap_or(&String::new()),
+        name: from.first_name.clone() + " " + from.last_name.as_ref().unwrap_or(&String::new()),
     };
     let text = message.text().unwrap_or_default();
     if text.is_empty() {
@@ -357,8 +357,16 @@ async fn command_handling(
     };
     log::info!("Command handling finished");
     if let Err(e) = &status {
-        if let Err(_) = bot.send_message(message.chat.id,"Unfortunately, you request failed. Please, check input data correctness. If you are sure that your input is correct. Try again later").await {
-            log::error!("Failed to respond to user with error message.\nInitial error: {}", e.to_string());
+        let error_message = "Unfortunately, you request failed. Please, check input data correctness. If you are sure that your input is correct. Try again later";
+        if bot
+            .send_message(message.chat.id, error_message)
+            .await
+            .is_err()
+        {
+            log::error!(
+                "Failed to respond to user with error message.\nInitial error: {}",
+                e.to_string()
+            );
         }
     }
     Ok(())
@@ -392,8 +400,8 @@ async fn get_subscription_string_for_api<Api: DatabaseInfoProvider + ApiName>(
 ) -> Result<String, anyhow::Error> {
     let chat = db.get_chat_info::<Api>(chat_id).await?;
     if let Some(chat) = chat {
-        let content = chat.subscribed_for_content_to.unwrap_or(Vec::new());
-        let likes = chat.subscribed_for_likes_to.unwrap_or(Vec::new());
+        let content = chat.subscribed_for_content_to.unwrap_or_default();
+        let likes = chat.subscribed_for_likes_to.unwrap_or_default();
         let content_subscribers = content.into_iter().fold(String::new(), |result, i| {
             result + &format!("@{} - Content-type subscription\n", i)
         });
@@ -419,10 +427,10 @@ async fn show_subscriptions(bot: &AutoSend<Bot>, chat_id: &str) -> anyhow::Resul
     let db = super::create_db().await?;
     let tiktok_subs = get_subscription_string_for_api::<TiktokApi>(chat_id, &db)
         .await
-        .unwrap_or(String::new());
+        .unwrap_or_default();
     let twitter_subs = get_subscription_string_for_api::<TwitterApi>(chat_id, &db)
         .await
-        .unwrap_or(String::new());
+        .unwrap_or_default();
 
     let empty_text = "Currently, group doesn't have any subscriptions";
     if !tiktok_subs.is_empty() || !twitter_subs.is_empty() {
@@ -500,7 +508,7 @@ where
         req_sender.send(UserRequest::Subscribe(model))?;
         bot.send_message(
             id,
-            format!("Added to the queue. You will be notified once we subscribe"),
+            "Added to the queue. You will be notified once we subscribe".to_string(),
         )
         .await?;
         Ok(())
@@ -526,7 +534,7 @@ where
             .await?;
         Ok(())
     } else {
-        db.unsubscribe_user::<Api>(&username, &chat_id, stype)
+        db.unsubscribe_user::<Api>(&username, chat_id, stype)
             .await?;
         cx.send_message(id, format!("Successfully unsubscribed from {}", &username))
             .await?;
