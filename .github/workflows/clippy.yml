@@ -6,7 +6,7 @@ jobs:
     steps:
       - uses: actions/checkout@v1
       - run: rustup component add clippy
-      - uses: cd tiktonick-bot && actions-rs/clippy-check@v1
+      - uses: actions-rs/clippy-check@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all-features
+          args: --all-features --manifest-path tiktonick-bot/Cargo.toml
