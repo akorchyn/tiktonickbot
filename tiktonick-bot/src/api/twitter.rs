@@ -1,11 +1,9 @@
-use reqwest::{self, Client};
-
 use std::env;
 
 use crate::api::{
-    Api, ApiAlive, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload, DataType,
-    DatabaseInfoProvider, FromEnv, GenerateMessage, GetId, OutputType, ReturnDataForDownload,
-    ReturnTextInfo, ReturnUserInfo, ReturnUsername, SubscriptionType,
+    api_requests, Api, ApiAlive, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload,
+    DataType, DatabaseInfoProvider, FromEnv, GenerateMessage, GetId, OutputType,
+    ReturnDataForDownload, ReturnTextInfo, ReturnUserInfo, ReturnUsername, SubscriptionType,
 };
 use crate::regexp;
 
@@ -14,11 +12,6 @@ use async_trait::async_trait;
 use serde::{self, Deserialize};
 use teloxide::types::ParseMode;
 use teloxide::types::ParseMode::Html;
-
-static TWEET_FIELDS: &str =
-    "id,text,attachments,author_id,in_reply_to_user_id,referenced_tweets,source";
-static EXPANSIONS: &str = "author_id,attachments.media_keys";
-static MEDIA_FIELDS: &str = "preview_image_url,url,media_key";
 
 #[derive(Debug, Deserialize, Default)]
 pub(crate) struct UserInfo {
@@ -81,44 +74,7 @@ impl ReturnTextInfo for Tweet {
 
 pub(crate) struct TwitterApi {
     secret: String,
-    twitter_domain: String,
-}
-
-impl TwitterApi {
-    async fn get_data<T>(&self, uri: String) -> anyhow::Result<Option<T>>
-    where
-        for<'a> T: Deserialize<'a>,
-    {
-        let client = Client::new();
-        let response = client
-            .get(format!("{}/{}", &self.twitter_domain, uri))
-            .bearer_auth(&self.secret)
-            .send()
-            .await?;
-        let text = response.text().await?;
-        let data = serde_json::from_str::<T>(&text);
-        if let Ok(data) = data {
-            Ok(Some(data))
-        } else {
-            log::warn!("{}", data.err().unwrap());
-            Ok(None)
-        }
-    }
-
-    fn subscription_type_to_api_uri(
-        stype: SubscriptionType,
-        user_id: &str,
-        max_results: u8,
-    ) -> String {
-        let api = match stype {
-            SubscriptionType::Content => "tweets",
-            SubscriptionType::Likes => "liked_tweets",
-        };
-        format!(
-            "2/users/{}/{}?tweet.fields={}&max_results={}&expansions={}&media.fields={}",
-            user_id, api, &TWEET_FIELDS, max_results, EXPANSIONS, MEDIA_FIELDS
-        )
-    }
+    api_url_generator: api_requests::ApiUrlGenerator,
 }
 
 #[async_trait]
@@ -188,9 +144,8 @@ impl FromEnv<TwitterApi> for TwitterApi {
     fn from_env() -> TwitterApi {
         TwitterApi {
             secret: env::var("TWITTER_API_BEARER_SECRET")
-                .unwrap_or_else(|_| "blahblah".to_string()),
-            twitter_domain: env::var("TWITTER_API_URL")
-                .unwrap_or_else(|_| "localhost:3000".to_string()),
+                .expect("TWITTER_API_BEARER_SECRET is not set"),
+            api_url_generator: api_requests::ApiUrlGenerator::from_env(),
         }
     }
 }
@@ -204,12 +159,14 @@ impl ApiContentReceiver for TwitterApi {
         count: u8,
         stype: SubscriptionType,
     ) -> Result<Vec<Tweet>, anyhow::Error> {
+        let api = match stype {
+            SubscriptionType::Content => "tweets",
+            SubscriptionType::Likes => "liked_tweets",
+        };
+
         let count = count.min(100).max(5);
-        let tweets = self
-            .get_data::<TwitterTweetResult>(TwitterApi::subscription_type_to_api_uri(
-                stype, id, count,
-            ))
-            .await?;
+        let url = self.api_url_generator.get_twitter_api_call(api, id, count);
+        let tweets = api_requests::get_data(&url, &self.secret).await?;
         if let Some(tweets) = tweets {
             Ok(process_tweet_data(tweets).await?)
         } else {
@@ -220,12 +177,11 @@ impl ApiContentReceiver for TwitterApi {
     async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Tweet> {
         if let Some(cap) = regexp::TWITTER_LINK.captures(link) {
             log::info!("Started processing request");
-            let tweets = self
-                .get_data::<TwitterTweetResult>(format!(
-                    "2/tweets/{}?tweet.fields={}&expansions={}&media.fields={}",
-                    &cap[3], TWEET_FIELDS, EXPANSIONS, MEDIA_FIELDS
-                ))
-                .await?;
+            let tweets = api_requests::get_data::<TwitterTweetResult>(
+                &self.api_url_generator.get_tweet_link(&cap[3]),
+                &self.secret,
+            )
+            .await?;
             if let Some(tweets) = tweets {
                 log::info!("Started parsing received data");
                 if let Some(tweet) = process_tweet_data(tweets).await?.pop() {
@@ -289,10 +245,16 @@ async fn process_tweet_data(tweets: TwitterTweetResult) -> Result<Vec<Tweet>, an
 impl ApiUserInfoReceiver for TwitterApi {
     type Out = UserInfo;
     async fn get_user_info(&self, id: &str) -> Result<Option<UserInfo>, anyhow::Error> {
-        let user_info = self
-            .get_data::<UserApiResponse>(format!("2/users/by/username/{}", id))
-            .await?;
-        Ok(user_info.map(|user_info| user_info.data))
+        let user_info = api_requests::get_data::<UserApiResponse>(
+            &self.api_url_generator.get_twitter_user_info(id),
+            &self.secret,
+        )
+        .await;
+        if let Ok(user_info) = user_info {
+            Ok(user_info.map(|user_info| user_info.data))
+        } else {
+            Ok(None)
+        }
     }
 }
 

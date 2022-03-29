@@ -1,12 +1,11 @@
 use crate::api::{
-    Api, ApiAlive, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload, DataType,
-    DatabaseInfoProvider, GenerateMessage, GetId, OutputType, ReturnDataForDownload,
+    api_requests, Api, ApiAlive, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload,
+    DataType, DatabaseInfoProvider, GenerateMessage, GetId, OutputType, ReturnDataForDownload,
     ReturnTextInfo, ReturnUserInfo, ReturnUsername, SubscriptionType,
 };
 use crate::regexp;
 
 use async_trait::async_trait;
-use reqwest::redirect::Policy;
 use serde::{self, Deserialize};
 use std::env;
 use teloxide::types::ParseMode::Html;
@@ -73,7 +72,7 @@ impl ReturnDataForDownload for Video {
 
 pub(crate) struct TiktokApi {
     secret: String,
-    tiktok_domain: String,
+    api_url_generator: api_requests::ApiUrlGenerator,
 }
 
 impl GenerateMessage<UserInfo, Video> for TiktokApi {
@@ -111,17 +110,15 @@ impl GenerateMessage<UserInfo, Video> for TiktokApi {
 }
 
 impl TiktokApi {
-    fn create_query(&self, api_name: &str, id: &str, count: u8) -> String {
-        format!(
-            "{}/api/{}/?username={}&count={}&key={}",
-            self.tiktok_domain, api_name, id, count, self.secret
-        )
-    }
-
-    async fn load_data(query: &str) -> Result<Vec<Video>, anyhow::Error> {
-        let response = reqwest::get(query).await?;
-        let text = response.text().await.unwrap_or_default();
-        let likes = serde_json::from_str::<Vec<TiktokItem>>(&text)?;
+    async fn load_data(&self, url: &str) -> Result<Vec<Video>, anyhow::Error> {
+        let likes = api_requests::get_data::<Vec<TiktokItem>>(url, &self.secret).await?;
+        log::info!("Received item. Item status is {}", likes.is_some());
+        let likes = likes.unwrap_or_default();
+        log::info!(
+            "Received {} videos from request for {} url",
+            likes.len(),
+            url
+        );
         Ok(likes
             .into_iter()
             .map(|item| Video {
@@ -133,46 +130,26 @@ impl TiktokApi {
             })
             .collect())
     }
-
-    pub(crate) async fn send_api_new_cookie(&self, cookie: String) -> Result<(), anyhow::Error> {
-        let client = reqwest::Client::new();
-        client
-            .post(format!(
-                "{}/api/new_cookie?key={}",
-                self.tiktok_domain, self.secret
-            ))
-            .form(&[("cookie", &cookie)])
-            .send()
-            .await?;
-        if self.is_alive().await {
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!(
-                "Failed to set a cookie or cookie is invalid"
-            ))
-        }
-    }
 }
 
 #[async_trait]
 impl ApiAlive for TiktokApi {
     async fn is_alive(&self) -> bool {
-        reqwest::get(format!(
-            "{}/api/status?key={}",
-            self.tiktok_domain, self.secret
-        ))
-        .await
-        .map(|response| response.status() == 200)
-        .unwrap_or(false)
+        let client = reqwest::Client::new();
+        client
+            .get(self.api_url_generator.get_tiktok_status())
+            .bearer_auth(&self.secret)
+            .send()
+            .await
+            .map(|response| response.status() == 200)
+            .unwrap_or(false)
     }
 
     async fn try_make_alive(&self) -> Result<(), anyhow::Error> {
         let client = reqwest::Client::new();
         client
-            .post(format!(
-                "{}/api/change_proxy?key={}",
-                self.tiktok_domain, self.secret
-            ))
+            .post(self.api_url_generator.get_change_proxy_link())
+            .bearer_auth(&self.secret)
             .send()
             .await?;
         Ok(())
@@ -206,7 +183,7 @@ impl super::FromEnv<TiktokApi> for TiktokApi {
     fn from_env() -> TiktokApi {
         TiktokApi {
             secret: env::var("TIKTOK_API_SECRET").unwrap_or_else(|_| "blahblah".to_string()),
-            tiktok_domain: env::var("TIKTOK_URL").unwrap_or_else(|_| "localhost:3000".to_string()),
+            api_url_generator: api_requests::ApiUrlGenerator::from_env(),
         }
     }
 }
@@ -220,17 +197,18 @@ impl ApiContentReceiver for TiktokApi {
         count: u8,
         etype: SubscriptionType,
     ) -> Result<Vec<Video>, anyhow::Error> {
-        let query_param = match etype {
+        let api = match etype {
             SubscriptionType::Content => "user_videos",
             SubscriptionType::Likes => "user_likes",
         };
-        TiktokApi::load_data(&self.create_query(query_param, id, count)).await
+        self.load_data(&self.api_url_generator.get_tiktok_api_call(&api, id, count))
+            .await
     }
 
     async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Video> {
         let link = if regexp::TIKTOK_SHORT_LINK.is_match(link) {
             // First of all, we have to convert shortened link to full-one.
-            let full_link = get_full_link(link).await?;
+            let full_link = api_requests::get_full_link(link).await?;
             log::info!("Original link({}) converted to {}", &link, &full_link);
             full_link
         } else {
@@ -239,11 +217,9 @@ impl ApiContentReceiver for TiktokApi {
 
         if let Some(cap) = regexp::TIKTOK_FULL_LINK.captures(&link) {
             let video_id = &cap[3];
-            let mut data = TiktokApi::load_data(&format!(
-                "{}/api/video_by_id/?video_id={}&key={}",
-                &self.tiktok_domain, video_id, self.secret
-            ))
-            .await?;
+            let mut data = self
+                .load_data(&self.api_url_generator.get_tiktok_video_by_id_link(video_id))
+                .await?;
             if let Some(video) = data.pop() {
                 return Ok(video);
             }
@@ -252,37 +228,15 @@ impl ApiContentReceiver for TiktokApi {
     }
 }
 
-async fn get_full_link(short_url: &str) -> anyhow::Result<String> {
-    let client = reqwest::ClientBuilder::new()
-        .redirect(Policy::limited(2))
-        .build()?;
-    match client
-        .head(short_url)
-        .header("User-Agent", "curl/7.22.0 (x86_64-pc-linux-gnu)") // For some reason reqwest hangs without it
-        .send()
-        .await
-    {
-        Ok(result) => Ok(result.url().to_string()),
-        Err(e) => {
-            log::warn!("Failed to send head request. {}", e);
-            Err(anyhow::anyhow!("Error: {}", e))
-        }
-    }
-}
-
 #[async_trait]
 impl ApiUserInfoReceiver for TiktokApi {
     type Out = UserInfo;
     async fn get_user_info(&self, id: &str) -> Result<Option<UserInfo>, anyhow::Error> {
-        // Count parameter would be ignored by server
-        let response = reqwest::get(self.create_query("user_info", id, 0)).await?;
-        if response.status() == 404 {
-            Ok(None)
-        } else {
-            let text = response.text().await?;
-            let data = serde_json::from_str::<UserInfo>(&text)?;
-            Ok(Some(data))
-        }
+        Ok(api_requests::get_data::<UserInfo>(
+            &self.api_url_generator.get_tiktok_user_info(&id),
+            &self.secret,
+        )
+        .await?)
     }
 }
 

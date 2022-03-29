@@ -383,7 +383,7 @@ async fn maintainer_handling(
             if let Some(user) = msg.from() {
                 let admin_id: String = std::env::var("TELEGRAM_ADMIN_ID").unwrap();
                 if user.id.to_string() == admin_id {
-                    TiktokApi::from_env().send_api_new_cookie(cookie).await?;
+                    // TiktokApi::from_env().send_api_new_cookie(cookie).await?;
                     bot.send_message(msg.chat_id(), "Succeed").await?;
                 } else {
                     bot.send_message(msg.chat_id(), "Not authorized").await?;
