@@ -3,12 +3,14 @@ networks:
   net:
     driver: bridge
 services:
-  tiktok-api-server:
-    build: tiktok-api-server
+  internal-api-server:
+    build: internal-api-server
     restart: always
     environment:
       - COOKIE=${COOKIE}
       - SECRET_KEY=${TIKTOK_API_SECRET}
+      - INSTAGRAM_LOGIN=${INSTAGRAM_LOGIN}
+      - INSTAGRAM_PASSWORD=${INSTAGRAM_PASSWORD}
       - PORT=5000
     ports:
       - "5000:5000"
@@ -24,7 +26,7 @@ services:
       - TIKTOK_API_SECRET=${TIKTOK_API_SECRET}
       - TIKTOK_BOT_DATABASE_NAME=${TIKTONICK_DB_NAME}
       - TIKTOK_BOT_MONGO_CON_STRING=${TIKTONICK_MONGO_CON_STRING}
-      - TIKTOK_URL=http://tiktok-api-server:5000/
+      - TIKTOK_URL=http://internal-api-server:5000/
       - TWITTER_API_BEARER_SECRET=${TWITTER_API_BEARER_SECRET}
       - TWITTER_API_URL=https://api.twitter.com
       - TELEGRAM_ADMIN_ID=${TELEGRAM_ADMIN_ID}

@@ -30,3 +30,5 @@ websockets==10.1
 Werkzeug==2.0.3
 wsproto==1.0.0
 Flask-HTTPAuth==4.5.0
+instagrapi==1.16.16
+Pillow==8.1.1
