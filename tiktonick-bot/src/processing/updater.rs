@@ -42,7 +42,6 @@ where
     <Api as ApiContentReceiver>::Out: GetId + ReturnDataForDownload + ReturnTextInfo,
     <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
     Api: DatabaseInfoProvider
-        + ApiAlive
         + ApiName
         + ApiContentReceiver
         + ApiUserInfoReceiver
@@ -182,7 +181,6 @@ where
         + ApiContentReceiver
         + ApiUserInfoReceiver
         + FromEnv<Api>
-        + ApiAlive
         + Sync
         + Send,
     <Api as ApiContentReceiver>::Out: GetId,
@@ -241,21 +239,11 @@ where
     <Api as ApiContentReceiver>::Out: GetId + ReturnDataForDownload + ReturnTextInfo,
     <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
     Api: DatabaseInfoProvider
-        + ApiAlive
         + ApiName
         + ApiContentReceiver
         + ApiUserInfoReceiver
         + GenerateMessage<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
 {
-    if !api.is_alive().await {
-        log::info!(
-            "{} Api is dead, trying make it alive. Will try update on next iteration",
-            Api::name()
-        );
-        api.try_make_alive().await?;
-        return Ok(());
-    }
-
     let chats = user.get_chats_by_subscription_type(stype);
     if chats.is_none() {
         return Ok(());
@@ -323,7 +311,6 @@ where
     <Api as ApiContentReceiver>::Out: GetId + ReturnDataForDownload + ReturnTextInfo,
     <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
     Api: DatabaseInfoProvider
-        + ApiAlive
         + ApiName
         + ApiContentReceiver
         + ApiUserInfoReceiver

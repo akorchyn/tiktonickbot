@@ -1,6 +1,5 @@
 import json
 from instagrapi import Client
-from instagrapi.exceptions import UserNotFound
 import os
 
 from api.social_network_api import SocialNetworkAPI

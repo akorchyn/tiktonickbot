@@ -49,12 +49,6 @@ pub(crate) trait GetId {
 }
 
 #[async_trait]
-pub(crate) trait ApiAlive {
-    async fn is_alive(&self) -> bool;
-    async fn try_make_alive(&self) -> Result<(), anyhow::Error>;
-}
-
-#[async_trait]
 pub(crate) trait ApiUserInfoReceiver {
     type Out;
     async fn get_user_info(&self, id: &str) -> Result<Option<Self::Out>, anyhow::Error>;

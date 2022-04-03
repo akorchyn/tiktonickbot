@@ -1,6 +1,6 @@
 use crate::api::{
-    api_requests, Api, ApiAlive, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload,
-    DataType, DatabaseInfoProvider, GenerateMessage, GetId, OutputType, ReturnDataForDownload,
+    api_requests, Api, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload, DataType,
+    DatabaseInfoProvider, GenerateMessage, GetId, OutputType, ReturnDataForDownload,
     ReturnTextInfo, ReturnUserInfo, ReturnUsername, SubscriptionType,
 };
 use crate::regexp;
@@ -111,7 +111,10 @@ impl GenerateMessage<UserInfo, Video> for TiktokApi {
 
 impl TiktokApi {
     async fn load_data(&self, url: &str) -> Result<Vec<Video>, anyhow::Error> {
-        let likes = api_requests::get_data::<Vec<TiktokItem>>(url, &self.secret).await?;
+        let likes = self
+            .api_url_generator
+            .get_data::<Vec<TiktokItem>>(url)
+            .await?;
         log::info!("Received item. Item status is {}", likes.is_some());
         let likes = likes.unwrap_or_default();
         log::info!(
@@ -129,30 +132,6 @@ impl TiktokApi {
                 download_address: item.video.download_address,
             })
             .collect())
-    }
-}
-
-#[async_trait]
-impl ApiAlive for TiktokApi {
-    async fn is_alive(&self) -> bool {
-        let client = reqwest::Client::new();
-        client
-            .get(self.api_url_generator.get_tiktok_status())
-            .bearer_auth(&self.secret)
-            .send()
-            .await
-            .map(|response| response.status() == 200)
-            .unwrap_or(false)
-    }
-
-    async fn try_make_alive(&self) -> Result<(), anyhow::Error> {
-        let client = reqwest::Client::new();
-        client
-            .post(self.api_url_generator.get_change_proxy_link())
-            .bearer_auth(&self.secret)
-            .send()
-            .await?;
-        Ok(())
     }
 }
 
@@ -183,7 +162,7 @@ impl super::FromEnv<TiktokApi> for TiktokApi {
     fn from_env() -> TiktokApi {
         TiktokApi {
             secret: env::var("TIKTOK_API_SECRET").unwrap_or_else(|_| "blahblah".to_string()),
-            api_url_generator: api_requests::ApiUrlGenerator::from_env(),
+            api_url_generator: api_requests::ApiUrlGenerator::from_env("tiktok".to_string()),
         }
     }
 }
@@ -198,11 +177,15 @@ impl ApiContentReceiver for TiktokApi {
         etype: SubscriptionType,
     ) -> Result<Vec<Video>, anyhow::Error> {
         let api = match etype {
-            SubscriptionType::Content => "user_videos",
-            SubscriptionType::Likes => "user_likes",
+            SubscriptionType::Content => "posts",
+            SubscriptionType::Likes => "likes",
         };
-        self.load_data(&self.api_url_generator.get_tiktok_api_call(&api, id, count))
-            .await
+        self.load_data(
+            &self
+                .api_url_generator
+                .get_user_content_by_type(id, api, count),
+        )
+        .await
     }
 
     async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Video> {
@@ -218,7 +201,7 @@ impl ApiContentReceiver for TiktokApi {
         if let Some(cap) = regexp::TIKTOK_FULL_LINK.captures(&link) {
             let video_id = &cap[3];
             let mut data = self
-                .load_data(&self.api_url_generator.get_tiktok_video_by_id_link(video_id))
+                .load_data(&self.api_url_generator.get_content_by_id(video_id))
                 .await?;
             if let Some(video) = data.pop() {
                 return Ok(video);
@@ -232,11 +215,10 @@ impl ApiContentReceiver for TiktokApi {
 impl ApiUserInfoReceiver for TiktokApi {
     type Out = UserInfo;
     async fn get_user_info(&self, id: &str) -> Result<Option<UserInfo>, anyhow::Error> {
-        Ok(api_requests::get_data::<UserInfo>(
-            &self.api_url_generator.get_tiktok_user_info(&id),
-            &self.secret,
-        )
-        .await?)
+        Ok(self
+            .api_url_generator
+            .get_data::<UserInfo>(&self.api_url_generator.get_user_info(&id))
+            .await?)
     }
 }
 

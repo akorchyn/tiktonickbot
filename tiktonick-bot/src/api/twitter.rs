@@ -1,9 +1,9 @@
 use std::env;
 
 use crate::api::{
-    api_requests, Api, ApiAlive, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload,
-    DataType, DatabaseInfoProvider, FromEnv, GenerateMessage, GetId, OutputType,
-    ReturnDataForDownload, ReturnTextInfo, ReturnUserInfo, ReturnUsername, SubscriptionType,
+    api_requests, Api, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload, DataType,
+    DatabaseInfoProvider, FromEnv, GenerateMessage, GetId, OutputType, ReturnDataForDownload,
+    ReturnTextInfo, ReturnUserInfo, ReturnUsername, SubscriptionType,
 };
 use crate::regexp;
 
@@ -77,18 +77,6 @@ pub(crate) struct TwitterApi {
     api_url_generator: api_requests::ApiUrlGenerator,
 }
 
-#[async_trait]
-impl ApiAlive for TwitterApi {
-    async fn is_alive(&self) -> bool {
-        // Twitter API is official. So we can just ignore for now. Probably, we will implement credentials switch in nearby future.
-        true
-    }
-
-    async fn try_make_alive(&self) -> Result<(), Error> {
-        Ok(())
-    }
-}
-
 impl ApiName for TwitterApi {
     fn name() -> &'static str {
         "Twitter"
@@ -145,7 +133,7 @@ impl FromEnv<TwitterApi> for TwitterApi {
         TwitterApi {
             secret: env::var("TWITTER_API_BEARER_SECRET")
                 .expect("TWITTER_API_BEARER_SECRET is not set"),
-            api_url_generator: api_requests::ApiUrlGenerator::from_env(),
+            api_url_generator: api_requests::ApiUrlGenerator::from_env("twitter".to_string()),
         }
     }
 }
@@ -160,13 +148,15 @@ impl ApiContentReceiver for TwitterApi {
         stype: SubscriptionType,
     ) -> Result<Vec<Tweet>, anyhow::Error> {
         let api = match stype {
-            SubscriptionType::Content => "tweets",
-            SubscriptionType::Likes => "liked_tweets",
+            SubscriptionType::Content => "posts",
+            SubscriptionType::Likes => "likes",
         };
 
         let count = count.min(100).max(5);
-        let url = self.api_url_generator.get_twitter_api_call(api, id, count);
-        let tweets = api_requests::get_data(&url, &self.secret).await?;
+        let url = self
+            .api_url_generator
+            .get_user_content_by_type(id, api, count);
+        let tweets = self.api_url_generator.get_data(&url).await?;
         if let Some(tweets) = tweets {
             Ok(process_tweet_data(tweets).await?)
         } else {
@@ -177,11 +167,10 @@ impl ApiContentReceiver for TwitterApi {
     async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Tweet> {
         if let Some(cap) = regexp::TWITTER_LINK.captures(link) {
             log::info!("Started processing request");
-            let tweets = api_requests::get_data::<TwitterTweetResult>(
-                &self.api_url_generator.get_tweet_link(&cap[3]),
-                &self.secret,
-            )
-            .await?;
+            let tweets = self
+                .api_url_generator
+                .get_data::<TwitterTweetResult>(&self.api_url_generator.get_content_by_id(&cap[3]))
+                .await?;
             if let Some(tweets) = tweets {
                 log::info!("Started parsing received data");
                 if let Some(tweet) = process_tweet_data(tweets).await?.pop() {
@@ -245,11 +234,10 @@ async fn process_tweet_data(tweets: TwitterTweetResult) -> Result<Vec<Tweet>, an
 impl ApiUserInfoReceiver for TwitterApi {
     type Out = UserInfo;
     async fn get_user_info(&self, id: &str) -> Result<Option<UserInfo>, anyhow::Error> {
-        let user_info = api_requests::get_data::<UserApiResponse>(
-            &self.api_url_generator.get_twitter_user_info(id),
-            &self.secret,
-        )
-        .await;
+        let user_info = self
+            .api_url_generator
+            .get_data::<UserApiResponse>(&self.api_url_generator.get_user_info(id))
+            .await;
         if let Ok(user_info) = user_info {
             Ok(user_info.map(|user_info| user_info.data))
         } else {

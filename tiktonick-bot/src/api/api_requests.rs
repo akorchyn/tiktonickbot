@@ -3,109 +3,92 @@ use reqwest::Client;
 use serde::Deserialize;
 use std::env;
 
-// Twitter defaults
-const TWITTER_TWEET_FIELDS: &'static str =
-    "id,text,attachments,author_id,in_reply_to_user_id,referenced_tweets,source";
-const TWITTER_EXPANSIONS: &'static str = "author_id,attachments.media_keys";
-const TWITTER_MEDIA_FIELDS: &'static str = "preview_image_url,url,media_key";
-
 pub(crate) struct ApiUrlGenerator {
     internal_api_url: String,
-    twitter_url: String,
+    internal_api_secret: String,
+    api: String,
 }
 
 impl ApiUrlGenerator {
-    pub(crate) fn from_env() -> Self {
+    pub(crate) fn from_env(api: String) -> Self {
         let internal_api_url = env::var("INTERNAL_API_URL").expect("INTERNAL_API_URL");
-        let twitter_url = env::var("TWITTER_API_URL").expect("TWITTER_API_URL");
+        let internal_api_secret = env::var("INTERNAL_API_SECRET").expect("INTERNAL_API_SECRET");
         ApiUrlGenerator {
             internal_api_url,
-            twitter_url,
+            internal_api_secret,
+            api,
         }
     }
 
-    pub(crate) fn get_tiktok_video_by_id_link(&self, video_id: &str) -> String {
+    pub(crate) fn get_content_by_id(&self, content_id: &str) -> String {
         format!(
-            "{}/api/video_by_id/?video_id={}",
-            self.internal_api_url, video_id
+            "{domain}/api/{api}/content_by_id/{id}",
+            domain = self.internal_api_url,
+            api = self.api,
+            id = content_id
         )
     }
 
-    pub(crate) fn get_tiktok_api_call(&self, api: &str, username: &str, count: u8) -> String {
+    pub(crate) fn get_user_content_by_type(
+        &self,
+        user_id: &str,
+        content_type: &str,
+        count: u8,
+    ) -> String {
         format!(
-            "{}/api/{}/?username={}&count={}",
-            self.internal_api_url, api, username, count
+            "{domain}/api/{api}/{user_id}/{content_type}/{count}",
+            domain = self.internal_api_url,
+            api = self.api,
+            user_id = user_id,
+            content_type = content_type,
+            count = count
         )
     }
 
-    pub(crate) fn get_tiktok_user_info(&self, username: &str) -> String {
+    pub(crate) fn get_user_info(&self, user_id: &str) -> String {
         format!(
-            "{}/api/user_info/?username={}",
-            self.internal_api_url, username
+            "{domain}/api/{api}/user_info/{user_id}",
+            domain = self.internal_api_url,
+            api = self.api,
+            user_id = user_id
         )
     }
 
-    pub(crate) fn get_tiktok_status(&self) -> String {
-        format!("{}/api/status", self.internal_api_url)
-    }
-
-    pub(crate) fn get_twitter_api_call(&self, api: &str, username: &str, count: u8) -> String {
-        format!(
-            "{}/2/users/{}/{}?tweet.fields={TWITTER_TWEET_FIELDS}&max_results={MAX_RESULT}&expansions={TWITTER_EXPANSIONS}&media.fields={TWITTER_MEDIA_FIELDS}",
-            self.twitter_url, username, api, MAX_RESULT=count, TWITTER_TWEET_FIELDS=TWITTER_TWEET_FIELDS, TWITTER_EXPANSIONS=TWITTER_EXPANSIONS, TWITTER_MEDIA_FIELDS=TWITTER_MEDIA_FIELDS
-        )
-    }
-
-    pub(crate) fn get_twitter_user_info(&self, username: &str) -> String {
-        format!("{}/2/users/by/username/{}", self.twitter_url, username)
-    }
-
-    pub(crate) fn get_tweet_link(&self, tweet_id: &str) -> String {
-        format!(
-            "{}/2/tweets/{}?tweet.fields={}&expansions={}&media.fields={}",
-            self.twitter_url,
-            tweet_id,
-            TWITTER_TWEET_FIELDS,
-            TWITTER_EXPANSIONS,
-            TWITTER_MEDIA_FIELDS
-        )
-    }
-
-    pub(crate) fn get_change_proxy_link(&self) -> String {
-        format!("{}/api/change_proxy", self.internal_api_url)
-    }
-}
-
-pub(crate) async fn get_data<T>(url: &str, secret: &str) -> anyhow::Result<Option<T>>
-where
-    for<'a> T: Deserialize<'a>,
-{
-    log::info!("Requesting data from {}", url);
-    let client = Client::new();
-    let response = client.get(url).bearer_auth(secret).send().await?;
-    log::info!("Response status: {}", response.status());
-    if response.status().is_success() {
-        let text = response.text().await?;
-        let data = serde_json::from_str::<T>(&text);
-        if let Ok(data) = data {
-            log::info!("Data received");
-            Ok(Some(data))
+    pub(crate) async fn get_data<T>(&self, url: &str) -> anyhow::Result<Option<T>>
+    where
+        for<'a> T: Deserialize<'a>,
+    {
+        log::info!("Requesting data from {}", url);
+        let client = Client::new();
+        let response = client
+            .get(url)
+            .bearer_auth(&self.internal_api_secret)
+            .send()
+            .await?;
+        log::info!("Response status: {}", response.status());
+        if response.status().is_success() {
+            let text = response.text().await?;
+            let data = serde_json::from_str::<T>(&text);
+            if let Ok(data) = data {
+                log::info!("Data received");
+                Ok(Some(data))
+            } else {
+                Err(anyhow::anyhow!(
+                    "Failed to decode json response: {}\ndata is:\n{}",
+                    data.err().unwrap(),
+                    text
+                ))
+            }
+        } else if response.status() == 404 {
+            Ok(None)
         } else {
             Err(anyhow::anyhow!(
-                "Failed to decode json response: {}\ndata is:\n{}",
-                data.err().unwrap(),
-                text
+                "Failed to get data from {}\nstatus is: {}\nresponse is:\n{}",
+                url,
+                response.status(),
+                response.text().await?
             ))
         }
-    } else if response.status() == 404 {
-        Ok(None)
-    } else {
-        Err(anyhow::anyhow!(
-            "Failed to get data from {}\nstatus is: {}\nresponse is:\n{}",
-            url,
-            response.status(),
-            response.text().await?
-        ))
     }
 }
 
