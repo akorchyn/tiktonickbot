@@ -18,7 +18,7 @@ pub(crate) async fn run(bot: AutoSend<Bot>, request_queue: mpsc::Receiver<UserRe
     let tiktok_api = TiktokApi::from_env();
     let twitter_api = TwitterApi::from_env();
     tokio::spawn(update_loop_handler(bot.clone(), tiktok_api, db.clone()));
-    // tokio::spawn(update_loop_handler(bot.clone(), twitter_api, db.clone()));
+    tokio::spawn(update_loop_handler(bot.clone(), twitter_api, db.clone()));
     request_handler(bot, request_queue, db).await;
 }
 

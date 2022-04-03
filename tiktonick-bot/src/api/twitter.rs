@@ -1,5 +1,3 @@
-use std::env;
-
 use crate::api::{
     api_requests, Api, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload, DataType,
     DatabaseInfoProvider, FromEnv, GenerateMessage, GetId, OutputType, ReturnDataForDownload,
@@ -7,7 +5,7 @@ use crate::api::{
 };
 use crate::regexp;
 
-use anyhow::{anyhow, Error};
+use anyhow::anyhow;
 use async_trait::async_trait;
 use serde::{self, Deserialize};
 use teloxide::types::ParseMode;
@@ -73,7 +71,6 @@ impl ReturnTextInfo for Tweet {
 }
 
 pub(crate) struct TwitterApi {
-    secret: String,
     api_url_generator: api_requests::ApiUrlGenerator,
 }
 
@@ -103,7 +100,7 @@ impl GenerateMessage<UserInfo, Tweet> for TwitterApi {
                 }
             }
         OutputType::ByLink(tguser) => {
-                format!("<i><a href=\"tg://user?id={}\">{}</a> shared <a href=\"{}\">tweet</a>:</i>\n\n{}",
+                format!("<i>User <a href=\"tg://user?id={}\">{}</a> shared <a href=\"{}\">tweet</a>:</i>\n\n{}",
                     tguser.id, tguser.name, tweet_link, tweet.text)
             }
         }
@@ -131,8 +128,6 @@ impl DatabaseInfoProvider for TwitterApi {
 impl FromEnv<TwitterApi> for TwitterApi {
     fn from_env() -> TwitterApi {
         TwitterApi {
-            secret: env::var("TWITTER_API_BEARER_SECRET")
-                .expect("TWITTER_API_BEARER_SECRET is not set"),
             api_url_generator: api_requests::ApiUrlGenerator::from_env("twitter".to_string()),
         }
     }

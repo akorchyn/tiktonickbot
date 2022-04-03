@@ -20,9 +20,12 @@ class TwitterAPI(SocialNetworkAPI):
         
     def make_request(self, uri: str, params: dict = None) -> dict:
         try:
-            response = requests.get(f"{TwitterAPI.TWITTER_URL}/{uri}", params, headers=self.headers)
+            data = requests.get(f"{TwitterAPI.TWITTER_URL}/{uri}", params, headers=self.headers).json()
+            if data.get("errors"): # Not found
+                self.last_call_was_succeess = False
+                return None
             self.last_call_was_succeess = True
-            return response.json()
+            return data
         except:
             self.last_call_was_succeess = False
             return None
@@ -35,7 +38,7 @@ class TwitterAPI(SocialNetworkAPI):
 
     def content(self, user_id: str, content_type, count: int) -> dict:
         type = "liked_tweets" if content_type == "likes" else "tweets"
-        return self.make_request(f"users/{user_id}/{type}", self.params)
+        return self.make_request(f"users/{user_id}/{type}?max_results={count}", self.params)
 
     def content_by_id(self, content_id: str) -> dict:
         return self.make_request(f"tweets/{content_id}", self.params)

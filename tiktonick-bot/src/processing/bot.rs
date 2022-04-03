@@ -99,39 +99,19 @@ enum Command {
     TwitterUnsubscribeVideo(String),
 }
 
-#[derive(BotCommand, Clone)]
-#[command(rename = "lowercase", description = "Maintainer commands")]
-enum MaintainerCommands {
-    #[command(description = "Send new cookie value")]
-    SetNewCookie(String),
-}
-
 #[derive(Clone)]
 struct ConfigParameters {
-    bot_maintainer: i64,
     req_sender: SyncSender<UserRequest>,
 }
 
 pub(crate) async fn run(bot: AutoSend<Bot>, req_sender: SyncSender<UserRequest>) {
-    let parameters = ConfigParameters {
-        bot_maintainer: std::env::var("TELEGRAM_ADMIN_ID").unwrap().parse().unwrap(),
-        req_sender,
-    };
+    let parameters = ConfigParameters { req_sender };
 
     let handler = Update::filter_message()
         .branch(
             dptree::entry()
                 .filter_command::<Command>()
                 .endpoint(command_handling),
-        )
-        .branch(
-            dptree::filter(|msg: Message, cfg: ConfigParameters| {
-                msg.from()
-                    .map(|user| user.id == cfg.bot_maintainer)
-                    .unwrap_or_default()
-            })
-            .filter_command::<MaintainerCommands>()
-            .endpoint(maintainer_handling),
         )
         .branch(
             dptree::filter(|msg: Message| {
@@ -201,16 +181,8 @@ async fn command_handling(
     let chat_id = message.chat.id.to_string();
     let status = match command {
         Command::Help => {
-            let msg = if message.from().unwrap().id == cfg.bot_maintainer {
-                format!(
-                    "{}\n{}",
-                    Command::descriptions(),
-                    MaintainerCommands::descriptions()
-                )
-            } else {
-                Command::descriptions()
-            };
-            bot.send_message(message.chat_id(), msg).await?;
+            bot.send_message(message.chat_id(), Command::descriptions())
+                .await?;
             Ok(())
         }
         Command::ShowSubscriptions => show_subscriptions(&bot, &chat_id).await,
@@ -369,28 +341,6 @@ async fn command_handling(
             );
         }
     }
-    Ok(())
-}
-
-async fn maintainer_handling(
-    msg: Message,
-    bot: AutoSend<Bot>,
-    cmd: MaintainerCommands,
-) -> anyhow::Result<()> {
-    match cmd {
-        MaintainerCommands::SetNewCookie(cookie) => {
-            log::info!("Sending new cookie to the api: {}", cookie);
-            if let Some(user) = msg.from() {
-                let admin_id: String = std::env::var("TELEGRAM_ADMIN_ID").unwrap();
-                if user.id.to_string() == admin_id {
-                    // TiktokApi::from_env().send_api_new_cookie(cookie).await?;
-                    bot.send_message(msg.chat_id(), "Succeed").await?;
-                } else {
-                    bot.send_message(msg.chat_id(), "Not authorized").await?;
-                }
-            }
-        }
-    };
     Ok(())
 }
 

@@ -7,7 +7,6 @@ use crate::regexp;
 
 use async_trait::async_trait;
 use serde::{self, Deserialize};
-use std::env;
 use teloxide::types::ParseMode::Html;
 
 #[derive(Deserialize, Debug)]
@@ -71,7 +70,6 @@ impl ReturnDataForDownload for Video {
 }
 
 pub(crate) struct TiktokApi {
-    secret: String,
     api_url_generator: api_requests::ApiUrlGenerator,
 }
 
@@ -161,7 +159,6 @@ impl DatabaseInfoProvider for TiktokApi {
 impl super::FromEnv<TiktokApi> for TiktokApi {
     fn from_env() -> TiktokApi {
         TiktokApi {
-            secret: env::var("TIKTOK_API_SECRET").unwrap_or_else(|_| "blahblah".to_string()),
             api_url_generator: api_requests::ApiUrlGenerator::from_env("tiktok".to_string()),
         }
     }
@@ -177,7 +174,7 @@ impl ApiContentReceiver for TiktokApi {
         etype: SubscriptionType,
     ) -> Result<Vec<Video>, anyhow::Error> {
         let api = match etype {
-            SubscriptionType::Content => "posts",
+            SubscriptionType::Content => "videos",
             SubscriptionType::Likes => "likes",
         };
         self.load_data(

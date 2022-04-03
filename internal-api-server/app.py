@@ -14,7 +14,7 @@ auth = HTTPTokenAuth(scheme='Bearer')
 API_KEY = os.environ.get('SECRET_KEY', 'blahblah')
 APIs = {
     "twitter": TwitterAPI(),
-    # "instagram": InstagramAPI(),
+    "instagram": InstagramAPI(),
     "tiktok": TikTokAPI()
 }
 

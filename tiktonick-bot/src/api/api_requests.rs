@@ -36,11 +36,11 @@ impl ApiUrlGenerator {
         count: u8,
     ) -> String {
         format!(
-            "{domain}/api/{api}/{user_id}/{content_type}/{count}",
+            "{domain}/api/{api}/{content_type}/{user_id}/{count}",
             domain = self.internal_api_url,
             api = self.api,
-            user_id = user_id,
             content_type = content_type,
+            user_id = user_id,
             count = count
         )
     }
@@ -80,10 +80,14 @@ impl ApiUrlGenerator {
                 ))
             }
         } else if response.status() == 404 {
+            // User/content not found
             Ok(None)
+        } else if response.status() == 503 {
+            // Service unavailable (Proxy error)
+            Err(anyhow::anyhow!("Proxy error fetching: {}\n", url,))
         } else {
             Err(anyhow::anyhow!(
-                "Failed to get data from {}\nstatus is: {}\nresponse is:\n{}",
+                "Failed to fetch data from: {}\nstatus: {}\nresponse: {}",
                 url,
                 response.status(),
                 response.text().await?
