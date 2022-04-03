@@ -1,14 +1,15 @@
 from TikTokApi import TikTokApi
-from TikTokApi.exceptions import TikTokNotFoundError
 import json
 
 from api.social_network_api import SocialNetworkAPI
+from common.decorators import change_proxy_on_return_null
 
 class TikTokAPI(SocialNetworkAPI):
     def __init__(self) -> None:
         self.tiktok = TikTokApi.get_instance(use_test_endgpoints=True, proxy="socks5://localhost:9050")
         self.last_call_was_succeess = True
-        
+    
+    @change_proxy_on_return_null   
     def user_info(self, user_id: str) -> dict:
         try:
             self.last_call_was_succeess = True
@@ -17,18 +18,21 @@ class TikTokAPI(SocialNetworkAPI):
             self.last_call_was_succeess = False
             return None
 
+    @change_proxy_on_return_null
     def content_types(self):
         return ["videos", "likes"]
 
+    @change_proxy_on_return_null
     def content(self, user_id: str, content_type, count: int) -> dict:
         try:
             result = self.tiktok.user_liked_by_username(user_id, count) if content_type == "likes" else self.tiktok.by_username(user_id, count)
             self.last_call_was_succeess = True
-            return result
+            return json.dumps(result)
         except:
             self.last_call_was_succeess = False
             return None
 
+    @change_proxy_on_return_null
     def content_by_id(self, content_id: str) -> dict:
         try:
             self.last_call_was_succeess = True

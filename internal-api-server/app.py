@@ -1,18 +1,22 @@
 from flask import Flask, abort
 from flask_httpauth import HTTPTokenAuth
 import os
-from stem import Signal
-from stem.control import Controller
-import requests
 
-from api.twitter import TwitterAPI
 from api.social_network_api import SocialNetworkAPI
-from common.decorators import api_required, return_404_on_error
+from api.twitter import TwitterAPI
+from api.instagram import InstagramAPI
+from api.tiktok import TikTokAPI
+from common.decorators import api_required, abort_404_on_error, abort_503_on_proxy_failure
 
 app = Flask(__name__)
 auth = HTTPTokenAuth(scheme='Bearer')
 
 API_KEY = os.environ.get('SECRET_KEY', 'blahblah')
+APIs = {
+    "twitter": TwitterAPI(),
+    # "instagram": InstagramAPI(),
+    "tiktok": TikTokAPI()
+}
 
 @auth.verify_token
 def verify_token(token):
@@ -21,15 +25,17 @@ def verify_token(token):
 
 @app.route(f"/api/<api_name>/user_info/<username>", methods=['GET'])
 @auth.login_required
-@api_required
-@return_404_on_error
+@api_required(APIs)
+@abort_503_on_proxy_failure
+@abort_404_on_error
 def user_info(api: SocialNetworkAPI, username:str):
     return api.user_info(username)
 
 @app.route(f"/api/<api_name>/<type>/<username>/<int:count>", methods=['GET'])
 @auth.login_required
-@api_required
-@return_404_on_error
+@api_required(APIs)
+@abort_503_on_proxy_failure
+@abort_404_on_error
 def content(api: SocialNetworkAPI, type: str, username: str, count: int):
     if type not in api.content_types():
         abort(404)
@@ -37,25 +43,17 @@ def content(api: SocialNetworkAPI, type: str, username: str, count: int):
 
 @app.route(f"/api/<api_name>/content_by_id/<content_id>", methods=['GET'])
 @auth.login_required
-@api_required
-@return_404_on_error
+@api_required(APIs)
+@abort_503_on_proxy_failure
+@abort_404_on_error
 def content_by_id(api: SocialNetworkAPI, content_id: str):
     return api.content_by_id(content_id)
         
 @app.route(f"/api/<api_name>/status", methods=['GET'])
 @auth.login_required
-@api_required
+@api_required(APIs)
 def status(api: SocialNetworkAPI):
     if api.status():
         return 200
     else:
         return 503
-    
-@app.route("/api/change_proxy/", methods=['POST'])
-@auth.login_required
-def changeProxy():
-    with Controller.from_port(address="127.0.0.1", port=9051) as c:
-        c.authenticate()
-        c.signal(Signal.NEWNYM)
-    return requests.get('https://api.ipify.org', proxies={"http": "socks5://localhost:9050",
-                                                          "https": "socks5://localhost:9050"}).text
