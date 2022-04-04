@@ -69,11 +69,11 @@ impl ReturnDataForDownload for Video {
     }
 }
 
-pub(crate) struct TiktokApi {
+pub(crate) struct TiktokAPI {
     api_url_generator: api_requests::ApiUrlGenerator,
 }
 
-impl GenerateMessage<UserInfo, Video> for TiktokApi {
+impl GenerateMessage<UserInfo, Video> for TiktokAPI {
     fn message(user_info: &UserInfo, video: &Video, output: &OutputType) -> String {
         let video_link = format!(
             "https://tiktok.com/@{}/video/{}",
@@ -82,7 +82,7 @@ impl GenerateMessage<UserInfo, Video> for TiktokApi {
         match output {
             OutputType::BySubscription(stype) => {
                 match stype {
-                    SubscriptionType::Likes => format!(
+                    SubscriptionType::Subscription1 => format!(
                         "<i>User <a href=\"https://tiktok.com/@{}\">{}</a> liked <a href=\"{}\">video</a> from <a href=\"https://tiktok.com/@{}\">{}</a>:</i>\n\n{}",
                         user_info.unique_user_id,
                         user_info.nickname,
@@ -91,7 +91,7 @@ impl GenerateMessage<UserInfo, Video> for TiktokApi {
                         video.nickname,
                         video.description
                     ),
-                    SubscriptionType::Content => format!(
+                    SubscriptionType::Subscription2 => format!(
                         "<i>User <a href=\"https://tiktok.com/@{}\">{}</a> posted <a href=\"{}\">video</a></i>:\n\n{}",
                         video.unique_user_id, video.nickname, video_link, video.description
                     ),
@@ -107,7 +107,7 @@ impl GenerateMessage<UserInfo, Video> for TiktokApi {
     }
 }
 
-impl TiktokApi {
+impl TiktokAPI {
     async fn load_data(&self, url: &str) -> Result<Vec<Video>, anyhow::Error> {
         let likes = self
             .api_url_generator
@@ -133,7 +133,7 @@ impl TiktokApi {
     }
 }
 
-impl ApiName for TiktokApi {
+impl ApiName for TiktokAPI {
     fn name() -> &'static str {
         "Tiktok"
     }
@@ -142,7 +142,7 @@ impl ApiName for TiktokApi {
     }
 }
 
-impl DatabaseInfoProvider for TiktokApi {
+impl DatabaseInfoProvider for TiktokAPI {
     fn user_collection_name() -> &'static str {
         "tiktokUsers"
     }
@@ -156,16 +156,16 @@ impl DatabaseInfoProvider for TiktokApi {
     }
 }
 
-impl super::FromEnv<TiktokApi> for TiktokApi {
-    fn from_env() -> TiktokApi {
-        TiktokApi {
+impl super::FromEnv<TiktokAPI> for TiktokAPI {
+    fn from_env() -> TiktokAPI {
+        TiktokAPI {
             api_url_generator: api_requests::ApiUrlGenerator::from_env("tiktok".to_string()),
         }
     }
 }
 
 #[async_trait]
-impl ApiContentReceiver for TiktokApi {
+impl ApiContentReceiver for TiktokAPI {
     type Out = Video;
     async fn get_content(
         &self,
@@ -174,8 +174,8 @@ impl ApiContentReceiver for TiktokApi {
         etype: SubscriptionType,
     ) -> Result<Vec<Video>, anyhow::Error> {
         let api = match etype {
-            SubscriptionType::Content => "videos",
-            SubscriptionType::Likes => "likes",
+            SubscriptionType::Subscription2 => "videos",
+            SubscriptionType::Subscription1 => "likes",
         };
         self.load_data(
             &self
@@ -209,7 +209,7 @@ impl ApiContentReceiver for TiktokApi {
 }
 
 #[async_trait]
-impl ApiUserInfoReceiver for TiktokApi {
+impl ApiUserInfoReceiver for TiktokAPI {
     type Out = UserInfo;
     async fn get_user_info(&self, id: &str) -> Result<Option<UserInfo>, anyhow::Error> {
         Ok(self

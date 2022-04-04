@@ -2,8 +2,9 @@ use crate::api::*;
 
 use teloxide::prelude2::*;
 
-use crate::api::tiktok::TiktokApi;
-use crate::api::twitter::TwitterApi;
+use crate::api::instagram::InstagramAPI;
+use crate::api::tiktok::TiktokAPI;
+use crate::api::twitter::TwitterAPI;
 use crate::database::User;
 use futures::future::join_all;
 use std::sync::mpsc;
@@ -15,10 +16,12 @@ pub(crate) async fn run(bot: AutoSend<Bot>, request_queue: mpsc::Receiver<UserRe
     let db = create_db()
         .await
         .expect("Expected successful connection to DB");
-    let tiktok_api = TiktokApi::from_env();
-    let twitter_api = TwitterApi::from_env();
+    let tiktok_api = TiktokAPI::from_env();
+    let twitter_api = TwitterAPI::from_env();
+    let instagram_api = InstagramAPI::from_env();
     tokio::spawn(update_loop_handler(bot.clone(), tiktok_api, db.clone()));
     tokio::spawn(update_loop_handler(bot.clone(), twitter_api, db.clone()));
+    tokio::spawn(update_loop_handler(bot.clone(), instagram_api, db.clone()));
     request_handler(bot, request_queue, db).await;
 }
 
@@ -74,16 +77,19 @@ async fn process_queue(bot: &AutoSend<Bot>, db: &MongoDatabase, req_queue: &mut 
         .map(|request| async {
             let status = match &request {
                 UserRequest::LastNData(r, n) => match r.api {
-                    Api::Twitter => last_n_data::<TwitterApi>(bot, r, *n).await,
-                    Api::Tiktok => last_n_data::<TiktokApi>(bot, r, *n).await,
+                    Api::Twitter => last_n_data::<TwitterAPI>(bot, r, *n).await,
+                    Api::Tiktok => last_n_data::<TiktokAPI>(bot, r, *n).await,
+                    Api::Instagram => last_n_data::<InstagramAPI>(bot, r, *n).await,
                 },
                 UserRequest::Subscribe(r) => match r.api {
-                    Api::Twitter => subscribe::<TwitterApi>(bot, db, r).await,
-                    Api::Tiktok => subscribe::<TiktokApi>(bot, db, r).await,
+                    Api::Twitter => subscribe::<TwitterAPI>(bot, db, r).await,
+                    Api::Tiktok => subscribe::<TiktokAPI>(bot, db, r).await,
+                    Api::Instagram => subscribe::<InstagramAPI>(bot, db, r).await,
                 },
                 UserRequest::ProcessLink(l) => match l.api {
-                    Api::Twitter => process_link::<TwitterApi>(bot, l).await,
-                    Api::Tiktok => process_link::<TiktokApi>(bot, l).await,
+                    Api::Twitter => process_link::<TwitterAPI>(bot, l).await,
+                    Api::Tiktok => process_link::<TiktokAPI>(bot, l).await,
+                    Api::Instagram => process_link::<InstagramAPI>(bot, l).await,
                 },
             };
             if let Err(e) = &status {

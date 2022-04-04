@@ -1,4 +1,5 @@
 mod api_requests;
+pub(crate) mod instagram;
 pub(crate) mod tiktok;
 pub(crate) mod twitter;
 
@@ -11,19 +12,23 @@ use teloxide::types::ParseMode;
 pub(crate) enum Api {
     Tiktok,
     Twitter,
+    Instagram,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub(crate) enum SubscriptionType {
-    Likes,
-    Content,
+    Subscription1,
+    Subscription2,
 }
 
 impl SubscriptionType {
     pub(crate) fn iterator() -> impl Iterator<Item = SubscriptionType> {
-        [SubscriptionType::Content, SubscriptionType::Likes]
-            .iter()
-            .copied()
+        [
+            SubscriptionType::Subscription2,
+            SubscriptionType::Subscription1,
+        ]
+        .iter()
+        .copied()
     }
 }
 

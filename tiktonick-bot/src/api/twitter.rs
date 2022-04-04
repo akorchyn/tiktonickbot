@@ -70,11 +70,11 @@ impl ReturnTextInfo for Tweet {
     }
 }
 
-pub(crate) struct TwitterApi {
-    api_url_generator: api_requests::ApiUrlGenerator,
+pub(crate) struct TwitterAPI {
+    pub(crate) api_url_generator: api_requests::ApiUrlGenerator,
 }
 
-impl ApiName for TwitterApi {
+impl ApiName for TwitterAPI {
     fn name() -> &'static str {
         "Twitter"
     }
@@ -83,17 +83,17 @@ impl ApiName for TwitterApi {
     }
 }
 
-impl GenerateMessage<UserInfo, Tweet> for TwitterApi {
+impl GenerateMessage<UserInfo, Tweet> for TwitterAPI {
     fn message(user: &UserInfo, tweet: &Tweet, output: &OutputType) -> String {
         let tweet_link = format!("https://twitter.com/{}/status/{}", tweet.username, tweet.id);
         match output {
             OutputType::BySubscription(stype) => {
                 match stype {
-                    SubscriptionType::Likes => format!(
+                    SubscriptionType::Subscription1 => format!(
                         "<i><a href=\"https://www.twitter.com/{}\">{}</a> liked <a href=\"{}\">tweet</a> from <a href=\"https://www.twitter.com/{}\">{}</a>:</i>\n\n{}",
                         user.username, user.name, tweet_link, tweet.username, tweet.name, tweet.text
                     ),
-                    SubscriptionType::Content => format!(
+                    SubscriptionType::Subscription2 => format!(
                         "<i><a href=\"https://www.twitter.com/{}\">{}</a> posted <a href=\"{}\">tweet</a>:</i>\n\n{}",
                         tweet.username, tweet.name, tweet_link, tweet.text
                     ),
@@ -111,7 +111,7 @@ impl GenerateMessage<UserInfo, Tweet> for TwitterApi {
     }
 }
 
-impl DatabaseInfoProvider for TwitterApi {
+impl DatabaseInfoProvider for TwitterAPI {
     fn user_collection_name() -> &'static str {
         "twitterUsers"
     }
@@ -125,16 +125,16 @@ impl DatabaseInfoProvider for TwitterApi {
     }
 }
 
-impl FromEnv<TwitterApi> for TwitterApi {
-    fn from_env() -> TwitterApi {
-        TwitterApi {
+impl FromEnv<TwitterAPI> for TwitterAPI {
+    fn from_env() -> TwitterAPI {
+        TwitterAPI {
             api_url_generator: api_requests::ApiUrlGenerator::from_env("twitter".to_string()),
         }
     }
 }
 
 #[async_trait]
-impl ApiContentReceiver for TwitterApi {
+impl ApiContentReceiver for TwitterAPI {
     type Out = Tweet;
     async fn get_content(
         &self,
@@ -143,8 +143,8 @@ impl ApiContentReceiver for TwitterApi {
         stype: SubscriptionType,
     ) -> Result<Vec<Tweet>, anyhow::Error> {
         let api = match stype {
-            SubscriptionType::Content => "posts",
-            SubscriptionType::Likes => "likes",
+            SubscriptionType::Subscription2 => "posts",
+            SubscriptionType::Subscription1 => "likes",
         };
 
         let count = count.min(100).max(5);
@@ -226,7 +226,7 @@ async fn process_tweet_data(tweets: TwitterTweetResult) -> Result<Vec<Tweet>, an
 }
 
 #[async_trait]
-impl ApiUserInfoReceiver for TwitterApi {
+impl ApiUserInfoReceiver for TwitterAPI {
     type Out = UserInfo;
     async fn get_user_info(&self, id: &str) -> Result<Option<UserInfo>, anyhow::Error> {
         let user_info = self

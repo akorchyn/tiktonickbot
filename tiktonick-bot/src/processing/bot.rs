@@ -1,8 +1,9 @@
 use std::sync::mpsc::SyncSender;
 use teloxide::{prelude2::*, utils::command::BotCommand};
 
-use crate::api::tiktok::TiktokApi;
-use crate::api::twitter::TwitterApi;
+use crate::api::instagram::InstagramAPI;
+use crate::api::tiktok::TiktokAPI;
+use crate::api::twitter::TwitterAPI;
 use crate::api::*;
 use crate::database::MongoDatabase;
 use crate::processing::{LinkInfo, RequestModel, UserRequest};
@@ -57,6 +58,32 @@ enum Command {
         parse_with = "split"
     )]
     LastNVideo { username: String, n: u8 },
+
+    // Instagram commands:
+    #[command(
+        rename = "story",
+        description = "sends last instagram story for given user."
+    )]
+    LastInstagramStory(String),
+    #[command(
+        rename = "stories",
+        description = "sends last n instagram stories for given user.",
+        parse_with = "split"
+    )]
+    LastNStories { username: String, n: u8 },
+    #[command(
+        rename = "post",
+        description = "sends last instagram post for given user."
+    )]
+    LastInstagramPost(String),
+    #[command(
+        rename = "posts",
+        description = "sends last n instagram posts for given user.",
+        parse_with = "split"
+    )]
+    LastNInstagramPosts { username: String, n: u8 },
+
+    // Tiktok subscriptions:
     #[command(
         rename = "sub_tiktok_likes",
         description = "subscribe chat to tiktok user likes feed."
@@ -72,6 +99,8 @@ enum Command {
         description = "unsubscribe chat from tiktok user video feed."
     )]
     TiktokUnsubscribeLikes(String),
+
+    // Twitter subscriptions:
     #[command(
         rename = "unsub_tiktok",
         description = "unsubscribe chat from tiktok user video feed."
@@ -97,6 +126,28 @@ enum Command {
         description = "unsubscribe chat from tiktok user video feed."
     )]
     TwitterUnsubscribeVideo(String),
+
+    // Instagram subscriptions:
+    #[command(
+        rename = "sub_stories",
+        description = "subscribe chat to instagram user stories."
+    )]
+    InstagramSubscribeOnStories(String),
+    #[command(
+        rename = "sub_instagram",
+        description = "subscribe chat to instagram user posts"
+    )]
+    InstagramSubscribeOnPosts(String),
+    #[command(
+        rename = "unsub_stories",
+        description = "unsubscribe chat from instagram user stories."
+    )]
+    InstagramUnsubscribeFromStories(String),
+    #[command(
+        rename = "unsub_instagram",
+        description = "unsubscribe chat from instagram user posts."
+    )]
+    InstagramUnsubscribeFromPosts(String),
 }
 
 #[derive(Clone)]
@@ -187,144 +238,220 @@ async fn command_handling(
         }
         Command::ShowSubscriptions => show_subscriptions(&bot, &chat_id).await,
         Command::LastTweet(username) => {
-            last_n_data::<TwitterApi>(
+            last_n_data::<TwitterAPI>(
                 &bot,
                 &cfg.req_sender,
                 username,
                 1,
                 &chat_id,
-                SubscriptionType::Content,
+                SubscriptionType::Subscription2,
             )
             .await
         }
         Command::LastNTweets { username, n } => {
-            last_n_data::<TwitterApi>(
+            last_n_data::<TwitterAPI>(
                 &bot,
                 &cfg.req_sender,
                 username,
                 n,
                 &chat_id,
-                SubscriptionType::Content,
+                SubscriptionType::Subscription2,
             )
             .await
         }
         Command::LastLikedTweet(username) => {
-            last_n_data::<TwitterApi>(
+            last_n_data::<TwitterAPI>(
                 &bot,
                 &cfg.req_sender,
                 username,
                 1,
                 &chat_id,
-                SubscriptionType::Likes,
+                SubscriptionType::Subscription1,
             )
             .await
         }
         Command::LastNLikedTweet { username, n } => {
-            last_n_data::<TwitterApi>(
+            last_n_data::<TwitterAPI>(
                 &bot,
                 &cfg.req_sender,
                 username,
                 n,
                 &chat_id,
-                SubscriptionType::Likes,
+                SubscriptionType::Subscription1,
             )
             .await
         }
         Command::LastLike(username) => {
-            last_n_data::<TiktokApi>(
+            last_n_data::<TiktokAPI>(
                 &bot,
                 &cfg.req_sender,
                 username,
                 1,
                 &chat_id,
-                SubscriptionType::Likes,
+                SubscriptionType::Subscription1,
             )
             .await
         }
         Command::LastNLike { username, n } => {
-            last_n_data::<TiktokApi>(
+            last_n_data::<TiktokAPI>(
                 &bot,
                 &cfg.req_sender,
                 username,
                 n,
                 &chat_id,
-                SubscriptionType::Likes,
+                SubscriptionType::Subscription1,
             )
             .await
         }
         Command::LastVideo(username) => {
-            last_n_data::<TiktokApi>(
+            last_n_data::<TiktokAPI>(
                 &bot,
                 &cfg.req_sender,
                 username,
                 1,
                 &chat_id,
-                SubscriptionType::Content,
+                SubscriptionType::Subscription2,
             )
             .await
         }
         Command::LastNVideo { username, n } => {
-            last_n_data::<TiktokApi>(
+            last_n_data::<TiktokAPI>(
                 &bot,
                 &cfg.req_sender,
                 username,
                 n,
                 &chat_id,
-                SubscriptionType::Content,
+                SubscriptionType::Subscription2,
+            )
+            .await
+        }
+        Command::LastInstagramPost(username) => {
+            last_n_data::<InstagramAPI>(
+                &bot,
+                &cfg.req_sender,
+                username,
+                1,
+                &chat_id,
+                SubscriptionType::Subscription2,
+            )
+            .await
+        }
+        Command::LastNInstagramPosts { username, n } => {
+            last_n_data::<InstagramAPI>(
+                &bot,
+                &cfg.req_sender,
+                username,
+                n,
+                &chat_id,
+                SubscriptionType::Subscription2,
+            )
+            .await
+        }
+        Command::LastInstagramStory(username) => {
+            last_n_data::<InstagramAPI>(
+                &bot,
+                &cfg.req_sender,
+                username,
+                1,
+                &chat_id,
+                SubscriptionType::Subscription1,
+            )
+            .await
+        }
+        Command::LastNStories { username, n } => {
+            last_n_data::<InstagramAPI>(
+                &bot,
+                &cfg.req_sender,
+                username,
+                n,
+                &chat_id,
+                SubscriptionType::Subscription1,
             )
             .await
         }
         Command::TiktokSubscribeLikes(username) => {
-            subscribe::<TiktokApi>(
+            subscribe::<TiktokAPI>(
                 &bot,
                 &cfg.req_sender,
                 username,
                 &chat_id,
-                SubscriptionType::Likes,
+                SubscriptionType::Subscription1,
             )
             .await
         }
         Command::TiktokSubscribeVideo(username) => {
-            subscribe::<TiktokApi>(
+            subscribe::<TiktokAPI>(
                 &bot,
                 &cfg.req_sender,
                 username,
                 &chat_id,
-                SubscriptionType::Content,
+                SubscriptionType::Subscription2,
             )
             .await
         }
         Command::TiktokUnsubscribeLikes(username) => {
-            unsubscribe::<TiktokApi>(&bot, username, &chat_id, SubscriptionType::Likes).await
+            unsubscribe::<TiktokAPI>(&bot, username, &chat_id, SubscriptionType::Subscription1)
+                .await
         }
         Command::TiktokUnsubscribeVideo(username) => {
-            unsubscribe::<TiktokApi>(&bot, username, &chat_id, SubscriptionType::Content).await
+            unsubscribe::<TiktokAPI>(&bot, username, &chat_id, SubscriptionType::Subscription2)
+                .await
         }
         Command::TwitterSubscribeLikes(username) => {
-            subscribe::<TwitterApi>(
+            subscribe::<TwitterAPI>(
                 &bot,
                 &cfg.req_sender,
                 username,
                 &chat_id,
-                SubscriptionType::Likes,
+                SubscriptionType::Subscription1,
             )
             .await
         }
         Command::TwitterSubscribeVideo(username) => {
-            subscribe::<TwitterApi>(
+            subscribe::<TwitterAPI>(
                 &bot,
                 &cfg.req_sender,
                 username,
                 &chat_id,
-                SubscriptionType::Content,
+                SubscriptionType::Subscription2,
             )
             .await
         }
         Command::TwitterUnsubscribeLikes(username) => {
-            unsubscribe::<TwitterApi>(&bot, username, &chat_id, SubscriptionType::Likes).await
+            unsubscribe::<TwitterAPI>(&bot, username, &chat_id, SubscriptionType::Subscription1)
+                .await
         }
         Command::TwitterUnsubscribeVideo(username) => {
-            unsubscribe::<TwitterApi>(&bot, username, &chat_id, SubscriptionType::Content).await
+            unsubscribe::<TwitterAPI>(&bot, username, &chat_id, SubscriptionType::Subscription2)
+                .await
+        }
+        Command::InstagramSubscribeOnStories(username) => {
+            subscribe::<InstagramAPI>(
+                &bot,
+                &cfg.req_sender,
+                username,
+                &chat_id,
+                SubscriptionType::Subscription1,
+            )
+            .await
+        }
+        Command::InstagramSubscribeOnPosts(username) => {
+            subscribe::<InstagramAPI>(
+                &bot,
+                &cfg.req_sender,
+                username,
+                &chat_id,
+                SubscriptionType::Subscription2,
+            )
+            .await
+        }
+        Command::InstagramUnsubscribeFromStories(username) => {
+            unsubscribe::<InstagramAPI>(&bot, username, &chat_id, SubscriptionType::Subscription1)
+                .await
+        }
+        Command::InstagramUnsubscribeFromPosts(username) => {
+            unsubscribe::<InstagramAPI>(&bot, username, &chat_id, SubscriptionType::Subscription2)
+                .await
         }
     };
     log::info!("Command handling finished");
@@ -375,10 +502,10 @@ async fn get_subscription_string_for_api<Api: DatabaseInfoProvider + ApiName>(
 
 async fn show_subscriptions(bot: &AutoSend<Bot>, chat_id: &str) -> anyhow::Result<()> {
     let db = super::create_db().await?;
-    let tiktok_subs = get_subscription_string_for_api::<TiktokApi>(chat_id, &db)
+    let tiktok_subs = get_subscription_string_for_api::<TiktokAPI>(chat_id, &db)
         .await
         .unwrap_or_default();
-    let twitter_subs = get_subscription_string_for_api::<TwitterApi>(chat_id, &db)
+    let twitter_subs = get_subscription_string_for_api::<TwitterAPI>(chat_id, &db)
         .await
         .unwrap_or_default();
 
