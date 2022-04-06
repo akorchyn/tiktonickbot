@@ -3,16 +3,18 @@ from flask import abort
 
 from common.proxy_handling import change_proxy, ProxyFailure
 
-def api_required(apis):
+
+def api_name_to_api(apis):
     def decorator(func):
         @wraps(func)
-        def wrapper(api_name, *args, **kwargs): 
+        def wrapper(api_name, *args, **kwargs):
             api = apis.get(api_name)
             if api is None:
                 abort(404)
-            return func(api, *args, **kwargs) 
+            return func(api, *args, **kwargs)
         return wrapper
     return decorator
+
 
 def abort_404_on_error(func):
     @wraps(func)
@@ -23,6 +25,7 @@ def abort_404_on_error(func):
         return result
     return inner
 
+
 def abort_503_on_proxy_failure(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
@@ -31,6 +34,7 @@ def abort_503_on_proxy_failure(func):
         except ProxyFailure:
             abort(503)
     return wrapper
+
 
 def change_proxy_on_return_null(func):
     @wraps(func)

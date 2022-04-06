@@ -4,12 +4,13 @@ import os
 
 from api.social_network_api import SocialNetworkAPI
 
+
 class InstagramAPI(SocialNetworkAPI):
     def __init__(self) -> None:
         self.instagram = Client()
         self.instagram.login(os.environ["INSTAGRAM_LOGIN"],
-                os.environ["INSTAGRAM_PASSWORD"])
-        # instagram.set_proxy("socks5://localhost:9050")
+                             os.environ["INSTAGRAM_PASSWORD"])
+        # instagram.set_proxy(PROXY_URL)
 
     def user_info(self, user_id: str) -> dict:
         try:
@@ -22,7 +23,8 @@ class InstagramAPI(SocialNetworkAPI):
 
     def content(self, user_id: str, content_type, count: int) -> dict:
         try:
-            result = self.instagram.user_stories(user_id, count) if content_type == "stories" else self.instagram.user_medias(user_id, count)
+            result = self.instagram.user_stories(
+                user_id, count) if content_type == "stories" else self.instagram.user_medias(user_id, count)
             return json.dumps([x.dict() for x in result], default=str)
         except:
             return None
@@ -35,4 +37,3 @@ class InstagramAPI(SocialNetworkAPI):
 
     def status(self) -> bool:
         return True
-

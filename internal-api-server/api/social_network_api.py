@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 
+
 class SocialNetworkAPI(ABC):
     @abstractmethod
     def user_info(self, user_id: str) -> dict:

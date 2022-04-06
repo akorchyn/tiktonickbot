@@ -3,13 +3,16 @@ import json
 
 from api.social_network_api import SocialNetworkAPI
 from common.decorators import change_proxy_on_return_null
+from common.proxy_handling import PROXY_URL
+
 
 class TikTokAPI(SocialNetworkAPI):
     def __init__(self) -> None:
-        self.tiktok = TikTokApi.get_instance(use_test_endgpoints=True, proxy="socks5://localhost:9050")
+        self.tiktok = TikTokApi.get_instance(
+            use_test_endgpoints=True, proxy=PROXY_URL)
         self.last_call_was_succeess = True
-    
-    @change_proxy_on_return_null   
+
+    @change_proxy_on_return_null
     def user_info(self, user_id: str) -> dict:
         try:
             self.last_call_was_succeess = True
@@ -25,7 +28,8 @@ class TikTokAPI(SocialNetworkAPI):
     @change_proxy_on_return_null
     def content(self, user_id: str, content_type, count: int) -> dict:
         try:
-            result = self.tiktok.user_liked_by_username(user_id, count) if content_type == "likes" else self.tiktok.by_username(user_id, count)
+            result = self.tiktok.user_liked_by_username(
+                user_id, count) if content_type == "likes" else self.tiktok.by_username(user_id, count)
             self.last_call_was_succeess = True
             return json.dumps(result)
         except:
