@@ -10,6 +10,7 @@ use std::env;
 use std::fs::File;
 use std::io;
 use std::path::Path;
+use teloxide::adaptors::Throttle;
 
 use crate::api::{
     Api, DataForDownload, GenerateMessage, OutputType, ReturnDataForDownload, ReturnTextInfo,
@@ -50,7 +51,7 @@ async fn create_db() -> Result<MongoDatabase, anyhow::Error> {
 
 async fn send_content<Api, UserInfo, Content>(
     _: &Api,
-    bot: &AutoSend<Bot>,
+    bot: &AutoSend<Throttle<Bot>>,
     user_info: &UserInfo,
     chat_id: &str,
     content: &Content,

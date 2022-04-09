@@ -8,11 +8,12 @@ use crate::api::twitter::TwitterAPI;
 use crate::database::User;
 use futures::future::join_all;
 use std::sync::mpsc;
+use teloxide::adaptors::Throttle;
 use teloxide::types::ChatId;
 
 use super::*;
 
-pub(crate) async fn run(bot: AutoSend<Bot>, request_queue: mpsc::Receiver<UserRequest>) {
+pub(crate) async fn run(bot: AutoSend<Throttle<Bot>>, request_queue: mpsc::Receiver<UserRequest>) {
     let db = create_db()
         .await
         .expect("Expected successful connection to DB");
@@ -26,7 +27,7 @@ pub(crate) async fn run(bot: AutoSend<Bot>, request_queue: mpsc::Receiver<UserRe
 }
 
 async fn request_handler(
-    bot: AutoSend<Bot>,
+    bot: AutoSend<Throttle<Bot>>,
     request_queue: mpsc::Receiver<UserRequest>,
     db: MongoDatabase,
 ) {
@@ -40,7 +41,7 @@ async fn request_handler(
     }
 }
 
-async fn update_loop_handler<Api>(bot: AutoSend<Bot>, api: Api, db: MongoDatabase)
+async fn update_loop_handler<Api>(bot: AutoSend<Throttle<Bot>>, api: Api, db: MongoDatabase)
 where
     <Api as ApiContentReceiver>::Out: GetId + ReturnDataForDownload + ReturnTextInfo,
     <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
@@ -70,7 +71,11 @@ fn fill_queue(sub_queue: &mut Vec<UserRequest>, sub_receiver: &mpsc::Receiver<Us
     log::info!("Finished requests retrieval");
 }
 
-async fn process_queue(bot: &AutoSend<Bot>, db: &MongoDatabase, req_queue: &mut Vec<UserRequest>) {
+async fn process_queue(
+    bot: &AutoSend<Throttle<Bot>>,
+    db: &MongoDatabase,
+    req_queue: &mut Vec<UserRequest>,
+) {
     log::info!("Queue size is: {}", req_queue.len());
     let req_queue_processed = req_queue
         .drain(..)
@@ -107,7 +112,10 @@ async fn process_queue(bot: &AutoSend<Bot>, db: &MongoDatabase, req_queue: &mut 
     log::info!("Queue size after is: {}", req_queue.len());
 }
 
-async fn process_link<Api>(bot: &AutoSend<Bot>, link_info: &LinkInfo) -> anyhow::Result<()>
+async fn process_link<Api>(
+    bot: &AutoSend<Throttle<Bot>>,
+    link_info: &LinkInfo,
+) -> anyhow::Result<()>
 where
     Api: ApiContentReceiver
         + ApiUserInfoReceiver
@@ -138,7 +146,7 @@ where
 }
 
 async fn last_n_data<Api>(
-    bot: &AutoSend<Bot>,
+    bot: &AutoSend<Throttle<Bot>>,
     request_model: &RequestModel,
     n: u8,
 ) -> Result<(), anyhow::Error>
@@ -178,7 +186,7 @@ where
 }
 
 async fn subscribe<Api>(
-    bot: &AutoSend<Bot>,
+    bot: &AutoSend<Throttle<Bot>>,
     db: &MongoDatabase,
     model: &RequestModel,
 ) -> Result<(), anyhow::Error>
@@ -235,7 +243,7 @@ where
 }
 
 async fn process_user<Api>(
-    bot: &AutoSend<Bot>,
+    bot: &AutoSend<Throttle<Bot>>,
     api: &Api,
     db: &MongoDatabase,
     user: &User,
@@ -309,7 +317,7 @@ where
 }
 
 async fn updates_monitor_run<Api>(
-    bot: &AutoSend<Bot>,
+    bot: &AutoSend<Throttle<Bot>>,
     api: &Api,
     db: &MongoDatabase,
 ) -> Result<(), anyhow::Error>

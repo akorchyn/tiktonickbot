@@ -1,0 +1,45 @@
+[api]
+name = "Tiktok"
+
+[commands]
+list=["last_sub_1", "last_sub_2", "last_n_sub_1", "last_n_sub_2", "subscribe_1", "subscribe_2", "unsubscribe_1", "unsubscribe_2"]
+description="Supported commands for TikTok:"
+[commands.last_sub_1]
+tg_command = "ltiktok"
+description = "Send last liked tiktok video for given user"
+arguments = ["String"]
+
+[commands.last_sub_2]
+tg_command = "tiktok"
+description = "Send last posted tiktok video for given user"
+arguments = ["String"]
+
+[commands.last_n_sub_1]
+tg_command = "ltiktoks"
+description = "Send last n liked tiktok videos for given user"
+arguments = ["String", "u8"]
+
+[commands.last_n_sub_2]
+tg_command = "tiktoks"
+description = "Send last n posted tiktok videos for given user"
+arguments = ["String", "u8"]
+
+[commands.subscribe_1]
+tg_command = "sub_tiktok_likes"
+description = "Subscribe to receive notifications about new liked tiktok videos for given user"
+arguments = ["String"]
+
+[commands.subscribe_2]
+tg_command = "sub_tiktok_videos"
+description = "Subscribe to receive notifications about new posted tiktok videos for given user"
+arguments = ["String"]
+
+[commands.unsubscribe_1]
+tg_command = "unsub_tiktok_likes"
+description = "Unsubscribe from receiving notifications about new liked tiktok videos for given user"
+arguments = ["String"]
+
+[commands.unsubscribe_2]
+tg_command = "unsub_tiktok_videos"
+description = "Unsubscribe from receiving notifications about new posted tiktok videos for given user"
+arguments = ["String"]

@@ -66,7 +66,7 @@ impl ApiContentReceiver for InstagramAPI {
             .unwrap())
     }
 
-    async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Post> {
+    async fn get_content_for_link(&self, _: &str) -> anyhow::Result<Post> {
         todo!()
         // let link = if regexp::TIKTOK_SHORT_LINK.is_match(link) {
         //     // First of all, we have to convert shortened link to full-one.
@@ -244,7 +244,7 @@ impl GenerateMessage<UserInfo, Post> for InstagramAPI {
                         story_url,
                     ),
                     SubscriptionType::Subscription2 => format!(
-                        "<i>User <a href=\"https://instagram.com/{}\">{}</a> posted <a href=\"{}\">video</a></i>:\n\n{}",
+                        "<i>User <a href=\"https://instagram.com/{}\">{}</a> posted <a href=\"{}\">post</a></i>:\n\n{}",
                         user_info.unique_user_name(), user_info.nickname(), post_url, content.text_info()
                     ),
                 }
