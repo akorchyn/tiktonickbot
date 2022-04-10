@@ -106,8 +106,8 @@ impl GenerateMessage<UserInfo, Tweet> for TwitterAPI {
         }
     }
 
-    fn message_format() -> Option<ParseMode> {
-        Some(Html)
+    fn message_format() -> ParseMode {
+        Html
     }
 }
 

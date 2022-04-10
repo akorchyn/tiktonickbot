@@ -9,6 +9,7 @@ use teloxide::types::{InputFile, InputMedia, InputMediaPhoto, InputMediaVideo};
 use std::env;
 use std::fs::File;
 use std::io;
+use std::mem::take;
 use std::path::Path;
 use teloxide::adaptors::Throttle;
 
@@ -63,41 +64,50 @@ where
     Content: ReturnDataForDownload + ReturnTextInfo,
 {
     let chat_id: i64 = chat_id.parse().unwrap();
-    if !content.is_data_for_download() {
-        (if let Some(v) = Api::message_format() {
-            bot.send_message(chat_id, Api::message(user_info, content, &output_type))
-                .parse_mode(v)
-        } else {
-            bot.send_message(chat_id, Api::message(user_info, content, &output_type))
-        })
-        .disable_web_page_preview(true)
-        .await?;
+    let text = Api::message(user_info, content, &output_type);
+    let mut chars = text.chars();
+    let split_size = if content.is_data_for_download() {
+        1024
     } else {
-        let mut is_first = true;
+        4096
+    };
+    let text = if chars.clone().count() > split_size {
+        let end_message = "... [Read more in the source]";
+        chars
+            .by_ref()
+            .take(split_size - end_message.len())
+            .collect::<String>()
+            + end_message
+    } else {
+        chars.collect::<String>()
+    };
+
+    if !content.is_data_for_download() {
+        bot.send_message(chat_id, text)
+            .parse_mode(Api::message_format())
+            .disable_web_page_preview(true)
+            .disable_notification(true)
+            .await?;
+    } else {
+        let mut caption = Some(text);
         let media: Vec<InputMedia> = content
             .data()
             .into_iter()
             .map(|item| {
                 let filename = format!("content/{}.{}", item.name, item.data_type.to_extension());
                 let media = InputFile::file(Path::new(&filename));
-                let caption = if is_first {
-                    is_first = false;
-                    Some(Api::message(user_info, content, &output_type))
-                } else {
-                    None
-                };
                 match item.data_type {
                     crate::api::DataType::Image => InputMedia::Photo(InputMediaPhoto {
                         media,
-                        caption,
-                        parse_mode: Api::message_format(),
+                        caption: take(&mut caption),
+                        parse_mode: Some(Api::message_format()),
                         caption_entities: None,
                     }),
                     crate::api::DataType::Video => InputMedia::Video(InputMediaVideo {
                         media,
                         thumb: None,
-                        caption,
-                        parse_mode: Api::message_format(),
+                        caption: take(&mut caption),
+                        parse_mode: Some(Api::message_format()),
                         caption_entities: None,
                         width: None,
                         height: None,
@@ -107,7 +117,9 @@ where
                 }
             })
             .collect();
-        bot.send_media_group(chat_id, media).await?;
+        bot.send_media_group(chat_id, media)
+            .disable_notification(true)
+            .await?;
     }
     Ok(())
 }

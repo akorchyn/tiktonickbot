@@ -23,8 +23,12 @@ class InstagramAPI(SocialNetworkAPI):
 
     def content(self, user_id: str, content_type, count: int) -> dict:
         try:
-            result = self.instagram.user_stories(
-                user_id, count) if content_type == "stories" else self.instagram.user_medias(user_id, count)
+            if content_type == "stories":
+                result = self.instagram.user_stories(user_id)
+                result.reverse()
+                result = result[:count]
+            else:
+                result = self.instagram.user_medias(user_id, count)
             return json.dumps([x.dict() for x in result], default=str)
         except:
             return None

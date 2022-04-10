@@ -128,7 +128,7 @@ pub(crate) trait ReturnTextInfo {
 
 pub(crate) trait GenerateMessage<UserInfo, Content> {
     fn message(user_info: &UserInfo, content: &Content, stype: &OutputType) -> String;
-    fn message_format() -> Option<ParseMode>;
+    fn message_format() -> ParseMode;
 }
 
 pub(crate) trait DatabaseInfoProvider {

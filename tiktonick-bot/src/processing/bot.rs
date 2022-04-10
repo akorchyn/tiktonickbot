@@ -16,6 +16,10 @@ mod commands;
 
 use commands::*;
 
+generate_api_handler!(twitter_api_handler, TwitterAPI, TwitterCommands);
+generate_api_handler!(instagram_api_handler, InstagramAPI, InstagramCommands);
+generate_api_handler!(tiktok_api_handler, TiktokAPI, TiktokCommands);
+
 #[derive(Clone)]
 struct ConfigParameters {
     req_sender: SyncSender<UserRequest>,
@@ -140,10 +144,6 @@ async fn command_handling(
     }
     Ok(())
 }
-
-generate_api_handler!(twitter_api_handler, TwitterAPI, TwitterCommands);
-generate_api_handler!(instagram_api_handler, InstagramAPI, InstagramCommands);
-generate_api_handler!(tiktok_api_handler, TiktokAPI, TiktokCommands);
 
 async fn get_subscription_string_for_api<Api: DatabaseInfoProvider + ApiName>(
     chat_id: &str,

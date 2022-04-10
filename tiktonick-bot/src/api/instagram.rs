@@ -55,15 +55,14 @@ impl ApiContentReceiver for InstagramAPI {
             SubscriptionType::Subscription2 => "posts",
             SubscriptionType::Subscription1 => "stories",
         };
-        Ok(self
-            .api_url_generator
+        self.api_url_generator
             .get_data::<Vec<Post>>(
                 &self
                     .api_url_generator
                     .get_user_content_by_type(id, api, count),
             )
             .await?
-            .unwrap())
+            .ok_or(anyhow::anyhow!("Failed to get data from instagram call"))
     }
 
     async fn get_content_for_link(&self, _: &str) -> anyhow::Result<Post> {
@@ -259,7 +258,7 @@ impl GenerateMessage<UserInfo, Post> for InstagramAPI {
         }
     }
 
-    fn message_format() -> Option<ParseMode> {
-        Some(ParseMode::Html)
+    fn message_format() -> ParseMode {
+        ParseMode::Html
     }
 }

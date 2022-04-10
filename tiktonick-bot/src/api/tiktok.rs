@@ -102,8 +102,8 @@ impl GenerateMessage<UserInfo, Video> for TiktokAPI {
         }
         }
     }
-    fn message_format() -> Option<super::ParseMode> {
-        Some(Html)
+    fn message_format() -> super::ParseMode {
+        Html
     }
 }
 
