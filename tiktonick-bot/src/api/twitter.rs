@@ -159,7 +159,7 @@ impl ApiContentReceiver for TwitterAPI {
         }
     }
 
-    async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Tweet> {
+    async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Option<Tweet>> {
         if let Some(cap) = regexp::TWITTER_LINK.captures(link) {
             log::info!("Started processing request");
             let tweets = self
@@ -168,9 +168,9 @@ impl ApiContentReceiver for TwitterAPI {
                 .await?;
             if let Some(tweets) = tweets {
                 log::info!("Started parsing received data");
-                if let Some(tweet) = process_tweet_data(tweets).await?.pop() {
-                    return Ok(tweet);
-                }
+                return Ok(process_tweet_data(tweets).await?.pop());
+            } else {
+                return Ok(None);
             }
         }
         return Err(anyhow!("Error processing {}", link));

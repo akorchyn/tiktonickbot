@@ -185,7 +185,7 @@ impl ApiContentReceiver for TiktokAPI {
         .await
     }
 
-    async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Video> {
+    async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Option<Video>> {
         let link = if regexp::TIKTOK_SHORT_LINK.is_match(link) {
             // First of all, we have to convert shortened link to full-one.
             let full_link = api_requests::get_full_link(link).await?;
@@ -200,9 +200,7 @@ impl ApiContentReceiver for TiktokAPI {
             let mut data = self
                 .load_data(&self.api_url_generator.get_content_by_id(video_id))
                 .await?;
-            if let Some(video) = data.pop() {
-                return Ok(video);
-            }
+            return Ok(data.pop());
         }
         Err(anyhow::anyhow!("Failed to fetch video by link"))
     }

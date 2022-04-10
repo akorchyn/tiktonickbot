@@ -55,6 +55,8 @@ pub(crate) async fn run(bot: AutoSend<Throttle<Bot>>, req_sender: SyncSender<Use
                 regexp::TWITTER_LINK.is_match(text)
                     || regexp::TIKTOK_FULL_LINK.is_match(text)
                     || regexp::TIKTOK_SHORT_LINK.is_match(text)
+                    || regexp::INSTAGRAM_POST_LINK.is_match(text)
+                    || regexp::INSTAGRAM_STORY_LINK.is_match(text)
             })
             .endpoint(link_handler),
         );
@@ -93,6 +95,8 @@ async fn link_handler(
         (regexp::TWITTER_LINK.find_iter(text), Api::Twitter),
         (regexp::TIKTOK_FULL_LINK.find_iter(text), Api::Tiktok),
         (regexp::TIKTOK_SHORT_LINK.find_iter(text), Api::Tiktok),
+        (regexp::INSTAGRAM_POST_LINK.find_iter(text), Api::Instagram),
+        (regexp::INSTAGRAM_STORY_LINK.find_iter(text), Api::Instagram),
     ] {
         for m in matches {
             let link_info = LinkInfo {

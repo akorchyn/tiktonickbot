@@ -69,7 +69,7 @@ pub(crate) trait ApiContentReceiver {
         etype: SubscriptionType,
     ) -> Result<Vec<Self::Out>, anyhow::Error>;
 
-    async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Self::Out>;
+    async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Option<Self::Out>>;
 }
 
 pub(crate) trait FromEnv<Api> {

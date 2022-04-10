@@ -20,9 +20,9 @@ pub(crate) async fn run(bot: AutoSend<Throttle<Bot>>, request_queue: mpsc::Recei
     let tiktok_api = TiktokAPI::from_env();
     let twitter_api = TwitterAPI::from_env();
     let instagram_api = InstagramAPI::from_env();
-    tokio::spawn(update_loop_handler(bot.clone(), tiktok_api, db.clone()));
-    tokio::spawn(update_loop_handler(bot.clone(), twitter_api, db.clone()));
-    tokio::spawn(update_loop_handler(bot.clone(), instagram_api, db.clone()));
+    // tokio::spawn(update_loop_handler(bot.clone(), tiktok_api, db.clone()));
+    // tokio::spawn(update_loop_handler(bot.clone(), twitter_api, db.clone()));
+    // tokio::spawn(update_loop_handler(bot.clone(), instagram_api, db.clone()));
     request_handler(bot, request_queue, db).await;
 }
 
@@ -126,22 +126,30 @@ where
 {
     let api = Api::from_env();
     let object = api.get_content_for_link(&link_info.link).await?;
-    log::info!("Fetching {} user data", object.username());
-    let user_info = api.get_user_info(object.username()).await?;
-    if let Some(user_info) = user_info {
-        super::download_content(ContentForDownload::Element(&object)).await;
-        super::send_content(
-            &api,
-            bot,
-            &user_info,
-            &link_info.chat_id,
-            &object,
-            OutputType::ByLink(link_info.telegram_user.clone()),
-        )
-        .await?;
-        Ok(())
+    if let Some(object) = object {
+        log::info!("Fetching {} user data", object.username());
+        let user_info = api.get_user_info(object.username()).await?;
+        if let Some(user_info) = user_info {
+            super::download_content(ContentForDownload::Element(&object)).await;
+            super::send_content(
+                &api,
+                bot,
+                &user_info,
+                &link_info.chat_id,
+                &object,
+                OutputType::ByLink(link_info.telegram_user.clone()),
+            )
+            .await?;
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Failed to fetch user data"))
+        }
     } else {
-        Err(anyhow::anyhow!("Failed to fetch user data"))
+        let chat_id: i64 = link_info.chat_id.parse().unwrap();
+        bot.send_message(chat_id, format!("Post doesn't exist or it's private"))
+            .disable_notification(true)
+            .await?;
+        Ok(())
     }
 }
 

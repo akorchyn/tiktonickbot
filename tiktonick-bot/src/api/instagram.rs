@@ -7,6 +7,7 @@ use crate::api::{
     DatabaseInfoProvider, FromEnv, GenerateMessage, GetId, OutputType, ReturnDataForDownload,
     ReturnTextInfo, ReturnUserInfo, SubscriptionType,
 };
+use crate::regexp;
 
 pub(crate) struct InstagramAPI {
     api_url_generator: api_requests::ApiUrlGenerator,
@@ -65,27 +66,19 @@ impl ApiContentReceiver for InstagramAPI {
             .ok_or(anyhow::anyhow!("Failed to get data from instagram call"))
     }
 
-    async fn get_content_for_link(&self, _: &str) -> anyhow::Result<Post> {
-        todo!()
-        // let link = if regexp::TIKTOK_SHORT_LINK.is_match(link) {
-        //     // First of all, we have to convert shortened link to full-one.
-        //     let full_link = api_requests::get_full_link(link).await?;
-        //     log::info!("Original link({}) converted to {}", &link, &full_link);
-        //     full_link
-        // } else {
-        //     link.to_string()
-        // };
-        //
-        // if let Some(cap) = regexp::TIKTOK_FULL_LINK.captures(&link) {
-        //     let video_id = &cap[3];
-        //     let mut data = self
-        //         .load_data(&self.api_url_generator.get_content_by_id(video_id))
-        //         .await?;
-        //     if let Some(video) = data.pop() {
-        //         return Ok(video);
-        //     }
-        // }
-        // Err(anyhow::anyhow!("Failed to fetch video by link"))
+    async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Option<Post>> {
+        let captures = regexp::INSTAGRAM_POST_LINK
+            .captures(link)
+            .or_else(|| regexp::INSTAGRAM_STORY_LINK.captures(link));
+        if let Some(cap) = captures {
+            let content_id = &cap[2];
+            let data = self
+                .api_url_generator
+                .get_data::<Post>(&self.api_url_generator.get_content_by_id(content_id))
+                .await?;
+            return Ok(data);
+        }
+        Err(anyhow::anyhow!("Couldn't find post/story by link"))
     }
 }
 
