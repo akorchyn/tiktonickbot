@@ -67,9 +67,7 @@ impl ApiContentReceiver for InstagramAPI {
     }
 
     async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Option<Post>> {
-        let captures = regexp::INSTAGRAM_POST_LINK
-            .captures(link)
-            .or_else(|| regexp::INSTAGRAM_STORY_LINK.captures(link));
+        let captures = regexp::INSTAGRAM_LINK.captures(link);
         if let Some(cap) = captures {
             let content_id = &cap[2];
             let data = self

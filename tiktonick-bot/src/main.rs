@@ -18,7 +18,7 @@ async fn main() {
         log::error!("Error: couldn't create videos directory.\n{}", e);
         return;
     }
-    let (sender, receiver) = sync_channel::<processing::UserRequest>(5000);
+    let (sender, receiver) = sync_channel::<processing::UserRequest>(100);
     let bot = Bot::from_env().throttle(Limits::default()).auto_send();
     tokio::spawn(processing::updater::run(bot.clone(), receiver));
     processing::bot::run(bot, sender).await;

@@ -36,7 +36,7 @@ class InstagramAPI(SocialNetworkAPI):
     def content_by_id(self, content_id: str) -> dict:
         try:
             if content_id.isalnum():
-                return self.instagram.story_info(content_id).dict()
+                return self.instagram.story_info(int(content_id)).dict()
             return self.instagram.media_info(self.instagram.media_pk_from_code(content_id)).dict()
         except:
             return None

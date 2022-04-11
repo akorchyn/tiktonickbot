@@ -22,7 +22,7 @@ pub(crate) async fn run(bot: AutoSend<Throttle<Bot>>, request_queue: mpsc::Recei
     let instagram_api = InstagramAPI::from_env();
     // tokio::spawn(update_loop_handler(bot.clone(), tiktok_api, db.clone()));
     // tokio::spawn(update_loop_handler(bot.clone(), twitter_api, db.clone()));
-    // tokio::spawn(update_loop_handler(bot.clone(), instagram_api, db.clone()));
+    tokio::spawn(update_loop_handler(bot.clone(), instagram_api, db.clone()));
     request_handler(bot, request_queue, db).await;
 }
 
@@ -32,7 +32,7 @@ async fn request_handler(
     db: MongoDatabase,
 ) {
     let mut requests: Vec<UserRequest> = Vec::new();
-    let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
     loop {
         interval.tick().await;
         log::info!("Started processing queue");

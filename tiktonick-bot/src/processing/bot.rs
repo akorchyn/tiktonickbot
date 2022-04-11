@@ -55,8 +55,7 @@ pub(crate) async fn run(bot: AutoSend<Throttle<Bot>>, req_sender: SyncSender<Use
                 regexp::TWITTER_LINK.is_match(text)
                     || regexp::TIKTOK_FULL_LINK.is_match(text)
                     || regexp::TIKTOK_SHORT_LINK.is_match(text)
-                    || regexp::INSTAGRAM_POST_LINK.is_match(text)
-                    || regexp::INSTAGRAM_STORY_LINK.is_match(text)
+                    || regexp::INSTAGRAM_LINK.is_match(text)
             })
             .endpoint(link_handler),
         );
@@ -95,8 +94,7 @@ async fn link_handler(
         (regexp::TWITTER_LINK.find_iter(text), Api::Twitter),
         (regexp::TIKTOK_FULL_LINK.find_iter(text), Api::Tiktok),
         (regexp::TIKTOK_SHORT_LINK.find_iter(text), Api::Tiktok),
-        (regexp::INSTAGRAM_POST_LINK.find_iter(text), Api::Instagram),
-        (regexp::INSTAGRAM_STORY_LINK.find_iter(text), Api::Instagram),
+        (regexp::INSTAGRAM_LINK.find_iter(text), Api::Instagram),
     ] {
         for m in matches {
             let link_info = LinkInfo {
@@ -180,21 +178,24 @@ async fn get_subscription_string_for_api<Api: DatabaseInfoProvider + ApiName>(
 
 async fn show_subscriptions(bot: &AutoSend<Throttle<Bot>>, chat_id: &str) -> anyhow::Result<()> {
     let db = super::create_db().await?;
-    let tiktok_subs = get_subscription_string_for_api::<TiktokAPI>(chat_id, &db)
-        .await
-        .unwrap_or_default();
-    let twitter_subs = get_subscription_string_for_api::<TwitterAPI>(chat_id, &db)
-        .await
-        .unwrap_or_default();
+    let sub_string = vec![
+        get_subscription_string_for_api::<TwitterAPI>(chat_id, &db).await?,
+        get_subscription_string_for_api::<InstagramAPI>(chat_id, &db).await?,
+        get_subscription_string_for_api::<TiktokAPI>(chat_id, &db).await?,
+    ]
+    .into_iter()
+    .filter(|s| !s.is_empty())
+    .collect::<Vec<String>>()
+    .join("");
 
-    let empty_text = "Currently, group doesn't have any subscriptions";
-    if !tiktok_subs.is_empty() || !twitter_subs.is_empty() {
+    if !sub_string.is_empty() {
         bot.send_message(
             chat_id.parse::<i64>().unwrap(),
-            format!("Group subscriptions:\n{}{}", tiktok_subs, twitter_subs),
+            format!("Group subscriptions:\n {}", sub_string),
         )
         .await?;
     } else {
+        let empty_text = "Currently, group doesn't have any subscriptions";
         bot.send_message(chat_id.parse::<i64>().unwrap(), empty_text)
             .await?;
     }
