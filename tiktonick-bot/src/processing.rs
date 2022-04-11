@@ -14,8 +14,8 @@ use std::path::Path;
 use teloxide::adaptors::Throttle;
 
 use crate::api::{
-    Api, DataForDownload, GenerateMessage, OutputType, ReturnDataForDownload, ReturnTextInfo,
-    ReturnUserInfo, SubscriptionType,
+    Api, DataForDownload, GenerateMessage, OutputType, ReturnDataForDownload, ReturnUserInfo,
+    SubscriptionType,
 };
 use crate::database::MongoDatabase;
 
@@ -61,7 +61,7 @@ async fn send_content<Api, UserInfo, Content>(
 where
     Api: GenerateMessage<UserInfo, Content>,
     UserInfo: ReturnUserInfo,
-    Content: ReturnDataForDownload + ReturnTextInfo,
+    Content: ReturnDataForDownload,
 {
     let chat_id: i64 = chat_id.parse().unwrap();
     let text = Api::message(user_info, content, &output_type);

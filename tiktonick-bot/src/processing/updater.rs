@@ -20,8 +20,8 @@ pub(crate) async fn run(bot: AutoSend<Throttle<Bot>>, request_queue: mpsc::Recei
     let tiktok_api = TiktokAPI::from_env();
     let twitter_api = TwitterAPI::from_env();
     let instagram_api = InstagramAPI::from_env();
-    // tokio::spawn(update_loop_handler(bot.clone(), tiktok_api, db.clone()));
-    // tokio::spawn(update_loop_handler(bot.clone(), twitter_api, db.clone()));
+    tokio::spawn(update_loop_handler(bot.clone(), tiktok_api, db.clone()));
+    tokio::spawn(update_loop_handler(bot.clone(), twitter_api, db.clone()));
     tokio::spawn(update_loop_handler(bot.clone(), instagram_api, db.clone()));
     request_handler(bot, request_queue, db).await;
 }
@@ -43,7 +43,7 @@ async fn request_handler(
 
 async fn update_loop_handler<Api>(bot: AutoSend<Throttle<Bot>>, api: Api, db: MongoDatabase)
 where
-    <Api as ApiContentReceiver>::Out: GetId + ReturnDataForDownload + ReturnTextInfo,
+    <Api as ApiContentReceiver>::Out: GetId + ReturnDataForDownload,
     <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
     Api: DatabaseInfoProvider
         + ApiName
@@ -121,7 +121,7 @@ where
         + ApiUserInfoReceiver
         + FromEnv<Api>
         + GenerateMessage<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
-    <Api as ApiContentReceiver>::Out: ReturnDataForDownload + ReturnTextInfo + ReturnUsername,
+    <Api as ApiContentReceiver>::Out: ReturnDataForDownload + ReturnUsername,
     <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
 {
     let api = Api::from_env();
@@ -163,7 +163,7 @@ where
         + ApiUserInfoReceiver
         + FromEnv<Api>
         + GenerateMessage<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
-    <Api as ApiContentReceiver>::Out: ReturnDataForDownload + ReturnTextInfo,
+    <Api as ApiContentReceiver>::Out: ReturnDataForDownload,
     <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
 {
     let api = Api::from_env();
@@ -258,7 +258,7 @@ async fn process_user<Api>(
     stype: SubscriptionType,
 ) -> Result<(), anyhow::Error>
 where
-    <Api as ApiContentReceiver>::Out: GetId + ReturnDataForDownload + ReturnTextInfo,
+    <Api as ApiContentReceiver>::Out: GetId + ReturnDataForDownload,
     <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
     Api: DatabaseInfoProvider
         + ApiName
@@ -330,7 +330,7 @@ async fn updates_monitor_run<Api>(
     db: &MongoDatabase,
 ) -> Result<(), anyhow::Error>
 where
-    <Api as ApiContentReceiver>::Out: GetId + ReturnDataForDownload + ReturnTextInfo,
+    <Api as ApiContentReceiver>::Out: GetId + ReturnDataForDownload,
     <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
     Api: DatabaseInfoProvider
         + ApiName

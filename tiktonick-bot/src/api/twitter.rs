@@ -1,7 +1,7 @@
 use crate::api::{
     api_requests, Api, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload, DataType,
     DatabaseInfoProvider, FromEnv, GenerateMessage, GetId, OutputType, ReturnDataForDownload,
-    ReturnTextInfo, ReturnUserInfo, ReturnUsername, SubscriptionType,
+    ReturnUserInfo, ReturnUsername, SubscriptionType,
 };
 use crate::regexp;
 
@@ -61,12 +61,6 @@ impl ReturnDataForDownload for Tweet {
         } else {
             Vec::new()
         }
-    }
-}
-
-impl ReturnTextInfo for Tweet {
-    fn text_info(&self) -> &str {
-        &self.text
     }
 }
 
@@ -166,12 +160,12 @@ impl ApiContentReceiver for TwitterAPI {
                 .api_url_generator
                 .get_data::<TwitterTweetResult>(&self.api_url_generator.get_content_by_id(&cap[3]))
                 .await?;
-            if let Some(tweets) = tweets {
+            return if let Some(tweets) = tweets {
                 log::info!("Started parsing received data");
-                return Ok(process_tweet_data(tweets).await?.pop());
+                Ok(process_tweet_data(tweets).await?.pop())
             } else {
-                return Ok(None);
-            }
+                Ok(None)
+            };
         }
         return Err(anyhow!("Error processing {}", link));
     }
@@ -185,15 +179,14 @@ async fn process_tweet_data(tweets: TwitterTweetResult) -> Result<Vec<Tweet>, an
         Data::Single(elem) => vec![elem],
     };
 
-    Ok(data
-        .into_iter()
-        .map(|tweet| {
+    data.into_iter()
+        .map(|tweet| -> anyhow::Result<Tweet> {
             let user_info = tweets
                 .includes
                 .users
                 .iter()
                 .find(|i| tweet.author_id == i.id)
-                .expect("Api should provide users info");
+                .ok_or_else(|| anyhow!("Twitter api failure. Api should provide user info"))?;
             let attachments = if tweet.attachments.is_some() && !media.is_empty() {
                 let mut attachments = Vec::new();
                 for media_key in tweet.attachments.unwrap().media_keys.into_iter() {
@@ -214,15 +207,15 @@ async fn process_tweet_data(tweets: TwitterTweetResult) -> Result<Vec<Tweet>, an
             } else {
                 None
             };
-            Tweet {
+            Ok(Tweet {
                 id: tweet.id,
                 text: tweet.text,
                 name: user_info.name.clone(),
                 username: user_info.username.clone(),
                 attachments,
-            }
+            })
         })
-        .collect())
+        .collect::<anyhow::Result<Vec<Tweet>>>()
 }
 
 #[async_trait]

@@ -1,4 +1,5 @@
 mod api_requests;
+mod default_loaders;
 pub(crate) mod instagram;
 pub(crate) mod tiktok;
 pub(crate) mod twitter;
@@ -120,10 +121,6 @@ pub(crate) struct DataForDownload {
 pub(crate) trait ReturnDataForDownload {
     fn is_data_for_download(&self) -> bool;
     fn data(&self) -> Vec<DataForDownload>;
-}
-
-pub(crate) trait ReturnTextInfo {
-    fn text_info(&self) -> &str;
 }
 
 pub(crate) trait GenerateMessage<UserInfo, Content> {

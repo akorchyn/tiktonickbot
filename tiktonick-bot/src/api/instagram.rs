@@ -1,13 +1,14 @@
-use async_trait::async_trait;
 use serde::{self, Deserialize};
 use teloxide::types::ParseMode;
 
+use crate::api::api_requests::ApiUrlGenerator;
+use crate::api::default_loaders::DefaultDataFetcherInfo;
 use crate::api::{
-    api_requests, Api, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload, DataType,
-    DatabaseInfoProvider, FromEnv, GenerateMessage, GetId, OutputType, ReturnDataForDownload,
-    ReturnTextInfo, ReturnUserInfo, SubscriptionType,
+    api_requests, Api, ApiName, DataForDownload, DataType, DatabaseInfoProvider, FromEnv,
+    GenerateMessage, GetId, OutputType, ReturnDataForDownload, ReturnUserInfo, SubscriptionType,
 };
 use crate::regexp;
+use async_trait::async_trait;
 
 pub(crate) struct InstagramAPI {
     api_url_generator: api_requests::ApiUrlGenerator,
@@ -44,50 +45,26 @@ impl DatabaseInfoProvider for InstagramAPI {
 }
 
 #[async_trait]
-impl ApiContentReceiver for InstagramAPI {
-    type Out = Post;
-    async fn get_content(
-        &self,
-        id: &str,
-        count: u8,
-        etype: SubscriptionType,
-    ) -> Result<Vec<Post>, anyhow::Error> {
-        let api = match etype {
-            SubscriptionType::Subscription2 => "posts",
+impl DefaultDataFetcherInfo for InstagramAPI {
+    type UserInfo = UserInfo;
+    type Content = Post;
+
+    fn api_url_generator(&self) -> &ApiUrlGenerator {
+        &self.api_url_generator
+    }
+
+    fn subscription_type_to_api_type(s: SubscriptionType) -> &'static str {
+        match s {
             SubscriptionType::Subscription1 => "stories",
-        };
-        self.api_url_generator
-            .get_data::<Vec<Post>>(
-                &self
-                    .api_url_generator
-                    .get_user_content_by_type(id, api, count),
-            )
-            .await?
-            .ok_or(anyhow::anyhow!("Failed to get data from instagram call"))
-    }
-
-    async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Option<Post>> {
-        let captures = regexp::INSTAGRAM_LINK.captures(link);
-        if let Some(cap) = captures {
-            let content_id = &cap[2];
-            let data = self
-                .api_url_generator
-                .get_data::<Post>(&self.api_url_generator.get_content_by_id(content_id))
-                .await?;
-            return Ok(data);
+            SubscriptionType::Subscription2 => "posts",
         }
-        Err(anyhow::anyhow!("Couldn't find post/story by link"))
     }
-}
 
-#[async_trait]
-impl ApiUserInfoReceiver for InstagramAPI {
-    type Out = UserInfo;
-    async fn get_user_info(&self, id: &str) -> Result<Option<UserInfo>, anyhow::Error> {
-        Ok(self
-            .api_url_generator
-            .get_data::<UserInfo>(&self.api_url_generator.get_user_info(&id))
-            .await?)
+    async fn get_content_id_from_url(&self, url: &str) -> Option<String> {
+        regexp::INSTAGRAM_LINK
+            .captures(&url)
+            .and_then(|cap| cap.get(2))
+            .map(|m| m.as_str().to_string())
     }
 }
 
@@ -119,13 +96,6 @@ pub(crate) struct Post {
 impl GetId for Post {
     fn id(&self) -> &str {
         &self.id
-    }
-}
-
-impl ReturnTextInfo for Post {
-    fn text_info(&self) -> &str {
-        static TEXT_INFO: &str = "";
-        self.caption_text.as_deref().unwrap_or(TEXT_INFO)
     }
 }
 
@@ -223,6 +193,10 @@ impl GenerateMessage<UserInfo, Post> for InstagramAPI {
             user_info.unique_user_name(),
             content.id
         );
+        let text_info = content
+            .caption_text
+            .as_ref()
+            .map_or_else(|| "".to_string(), |text| text.clone());
 
         match stype {
             OutputType::BySubscription(stype) => {
@@ -235,7 +209,7 @@ impl GenerateMessage<UserInfo, Post> for InstagramAPI {
                     ),
                     SubscriptionType::Subscription2 => format!(
                         "<i>User <a href=\"https://instagram.com/{}\">{}</a> posted <a href=\"{}\">post</a></i>:\n\n{}",
-                        user_info.unique_user_name(), user_info.nickname(), post_url, content.text_info()
+                        user_info.unique_user_name(), user_info.nickname(), post_url, text_info
                     ),
                 }
             }
@@ -243,7 +217,7 @@ impl GenerateMessage<UserInfo, Post> for InstagramAPI {
                 if content.product_type == "story" {
                     format!("<i>User <a href=\"tg://user?id={}\">{}</a> shared <a href=\"{}\">story</a></i>\n", tguser.id, tguser.name, story_url)
                 } else {
-                    format!("<i>User <a href=\"tg://user?id={}\">{}</a> shared <a href=\"{}\">post</a></i>:\n\n{}", tguser.id, tguser.name, post_url, content.text_info())
+                    format!("<i>User <a href=\"tg://user?id={}\">{}</a> shared <a href=\"{}\">post</a></i>:\n\n{}", tguser.id, tguser.name, post_url, text_info)
                 }
             }
         }

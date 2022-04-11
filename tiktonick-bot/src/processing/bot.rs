@@ -216,7 +216,7 @@ where
         + ApiUserInfoReceiver
         + FromEnv<Api>
         + GenerateMessage<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
-    <Api as ApiContentReceiver>::Out: ReturnDataForDownload + ReturnTextInfo,
+    <Api as ApiContentReceiver>::Out: ReturnDataForDownload,
     <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
 {
     let model = RequestModel {
