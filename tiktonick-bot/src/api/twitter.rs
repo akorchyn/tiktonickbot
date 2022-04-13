@@ -5,6 +5,7 @@ use crate::api::{
 };
 use crate::regexp;
 
+use crate::common::description_builder::{ActionType, DescriptionBuilder};
 use anyhow::anyhow;
 use async_trait::async_trait;
 use serde::{self, Deserialize};
@@ -78,26 +79,28 @@ impl ApiName for TwitterAPI {
 }
 
 impl GenerateMessage<UserInfo, Tweet> for TwitterAPI {
-    fn message(user: &UserInfo, tweet: &Tweet, output: &OutputType) -> String {
+    fn message(user: &UserInfo, tweet: &Tweet, output: &OutputType, len: usize) -> String {
         let tweet_link = format!("https://twitter.com/{}/status/{}", tweet.username, tweet.id);
+        let user_link = |user: &str| format!("https://twitter.com/{}", user);
+        let mut builder = DescriptionBuilder::new();
+
         match output {
-            OutputType::BySubscription(stype) => {
-                match stype {
-                    SubscriptionType::Subscription1 => format!(
-                        "<i><a href=\"https://www.twitter.com/{}\">{}</a> liked <a href=\"{}\">tweet</a> from <a href=\"https://www.twitter.com/{}\">{}</a>:</i>\n\n{}",
-                        user.username, user.name, tweet_link, tweet.username, tweet.name, tweet.text
-                    ),
-                    SubscriptionType::Subscription2 => format!(
-                        "<i><a href=\"https://www.twitter.com/{}\">{}</a> posted <a href=\"{}\">tweet</a>:</i>\n\n{}",
-                        tweet.username, tweet.name, tweet_link, tweet.text
-                    ),
-                }
+            OutputType::BySubscription(stype) => match stype {
+                SubscriptionType::Subscription1 => builder
+                    .action(ActionType::Liked)
+                    .from(&tweet.name, &user_link(&tweet.username)),
+                SubscriptionType::Subscription2 => builder.action(ActionType::Posted),
             }
-        OutputType::ByLink(tguser) => {
-                format!("<i>User <a href=\"tg://user?id={}\">{}</a> shared <a href=\"{}\">tweet</a>:</i>\n\n{}",
-                    tguser.id, tguser.name, tweet_link, tweet.text)
-            }
+            .who(&user.name, &user_link(&user.username)),
+            OutputType::ByLink(tguser) => builder
+                .who(&tguser.name, &tguser.user_link())
+                .action(ActionType::Shared)
+                .from(&tweet.name, &user_link(&tweet.username)),
         }
+        .content("tweet", &tweet_link)
+        .description(tweet.text.clone())
+        .size_limit(len)
+        .build()
     }
 
     fn message_format() -> ParseMode {

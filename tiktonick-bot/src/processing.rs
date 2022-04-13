@@ -64,23 +64,12 @@ where
     Content: ReturnDataForDownload,
 {
     let chat_id: i64 = chat_id.parse().unwrap();
-    let text = Api::message(user_info, content, &output_type);
-    let mut chars = text.chars();
-    let split_size = if content.is_data_for_download() {
+    let content_limit = if content.is_data_for_download() {
         1024
     } else {
         4096
     };
-    let text = if chars.clone().count() > split_size {
-        let end_message = "... [Read more in the source]";
-        chars
-            .by_ref()
-            .take(split_size - end_message.len())
-            .collect::<String>()
-            + end_message
-    } else {
-        chars.collect::<String>()
-    };
+    let text = Api::message(user_info, content, &output_type, content_limit);
 
     if !content.is_data_for_download() {
         bot.send_message(chat_id, text)

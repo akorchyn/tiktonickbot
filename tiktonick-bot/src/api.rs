@@ -39,6 +39,12 @@ pub(crate) struct TelegramUser {
     pub(crate) id: i64,
 }
 
+impl TelegramUser {
+    fn user_link(&self) -> String {
+        format!("tg://user?id={}", self.id)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum OutputType {
     BySubscription(SubscriptionType),
@@ -124,7 +130,12 @@ pub(crate) trait ReturnDataForDownload {
 }
 
 pub(crate) trait GenerateMessage<UserInfo, Content> {
-    fn message(user_info: &UserInfo, content: &Content, stype: &OutputType) -> String;
+    fn message(
+        user_info: &UserInfo,
+        content: &Content,
+        stype: &OutputType,
+        content_limit: usize,
+    ) -> String;
     fn message_format() -> ParseMode;
 }
 

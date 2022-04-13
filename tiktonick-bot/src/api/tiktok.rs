@@ -6,6 +6,7 @@ use crate::regexp;
 
 use crate::api::api_requests::ApiUrlGenerator;
 use crate::api::default_loaders::DefaultDataFetcherInfo;
+use crate::common::description_builder::{ActionType, DescriptionBuilder};
 use async_trait::async_trait;
 use serde::{self, Deserialize};
 use teloxide::types::ParseMode::Html;
@@ -15,34 +16,41 @@ pub(crate) struct TiktokAPI {
 }
 
 impl GenerateMessage<TiktokAuthor, TiktokItem> for TiktokAPI {
-    fn message(user_info: &TiktokAuthor, item: &TiktokItem, output: &OutputType) -> String {
-        let description = html_escape::encode_text(&item.description);
+    fn message(
+        user_info: &TiktokAuthor,
+        item: &TiktokItem,
+        output: &OutputType,
+        len: usize,
+    ) -> String {
+        let description = html_escape::encode_text(&item.description).to_string();
         let video_link = format!(
             "https://tiktok.com/@{}/video/{}",
             item.author.unique_user_id, item.video.id
         );
+        let user_link = |user: &str| format!("https://tiktok.com/@{}", user);
+
+        let mut builder = DescriptionBuilder::new();
         match output {
-            OutputType::BySubscription(stype) => {
-                match stype {
-                    SubscriptionType::Subscription1 => format!(
-                        "<i>User <a href=\"https://tiktok.com/@{}\">{}</a> liked <a href=\"{}\">video</a> from <a href=\"https://tiktok.com/@{}\">{}</a>:</i>\n\n{}",
-                        user_info.unique_user_id,
-                        user_info.nickname,
-                        video_link,
-                        item.author.unique_user_id,
-                        item.author.nickname,
-                        description
-                    ),
-                    SubscriptionType::Subscription2 => format!(
-                        "<i>User <a href=\"https://tiktok.com/@{}\">{}</a> posted <a href=\"{}\">video</a></i>:\n\n{}",
-                        item.author.unique_user_id, item.author.nickname, video_link, description
-                    ),
-                }
+            OutputType::BySubscription(stype) => match stype {
+                SubscriptionType::Subscription1 => builder.action(ActionType::Liked).from(
+                    &item.author.nickname,
+                    &user_link(&item.author.unique_user_id),
+                ),
+                SubscriptionType::Subscription2 => builder.action(ActionType::Posted),
             }
-        OutputType::ByLink(tguser) => {
-            format!("<i>User <a href=\"tg://user?id={}\">{}</a> shared <a href=\"{}\">video</a></i>:\n\n{}", tguser.id, tguser.name, video_link, description)
+            .who(&user_info.nickname, &user_link(&user_info.unique_user_id)),
+            OutputType::ByLink(tguser) => builder
+                .who(&tguser.name, &tguser.user_link())
+                .action(ActionType::Shared)
+                .from(
+                    &item.author.nickname,
+                    &user_link(&item.author.unique_user_id),
+                ),
         }
-        }
+        .content("video", &video_link)
+        .description(description)
+        .size_limit(len)
+        .build()
     }
     fn message_format() -> super::ParseMode {
         Html

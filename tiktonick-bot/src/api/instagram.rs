@@ -7,6 +7,7 @@ use crate::api::{
     api_requests, Api, ApiName, DataForDownload, DataType, DatabaseInfoProvider, FromEnv,
     GenerateMessage, GetId, OutputType, ReturnDataForDownload, ReturnUserInfo, SubscriptionType,
 };
+use crate::common::description_builder::{ActionType, DescriptionBuilder};
 use crate::regexp;
 use async_trait::async_trait;
 
@@ -186,41 +187,41 @@ impl ReturnUserInfo for UserInfo {
 }
 
 impl GenerateMessage<UserInfo, Post> for InstagramAPI {
-    fn message(user_info: &UserInfo, content: &Post, stype: &OutputType) -> String {
-        let post_url = format!("https://instagram.com/p/{}/", content.url_code);
-        let story_url = format!(
-            "https://instagram.com/stories/{}/{}",
-            user_info.unique_user_name(),
-            content.id
-        );
-        let text_info = content
-            .caption_text
-            .as_ref()
-            .map_or_else(|| "".to_string(), |text| text.clone());
+    fn message(user_info: &UserInfo, content: &Post, stype: &OutputType, len: usize) -> String {
+        let post_url = || format!("https://instagram.com/p/{}/", content.url_code);
+        let story_url = || {
+            format!(
+                "https://instagram.com/stories/{}/{}",
+                user_info.unique_user_name(),
+                content.id
+            )
+        };
+        let user_link = |user: &str| format!("https://instagram.com/{}/", user);
 
+        let mut builder = DescriptionBuilder::new();
         match stype {
-            OutputType::BySubscription(stype) => {
-                match stype {
-                    SubscriptionType::Subscription1 => format!(
-                        "<i>User <a href=\"https://instagram.com/{}\">{}</a> posted <a href=\"{}\">story</a></i>\n",
-                        user_info.unique_user_name(),
-                        user_info.nickname(),
-                        story_url,
-                    ),
-                    SubscriptionType::Subscription2 => format!(
-                        "<i>User <a href=\"https://instagram.com/{}\">{}</a> posted <a href=\"{}\">post</a></i>:\n\n{}",
-                        user_info.unique_user_name(), user_info.nickname(), post_url, text_info
-                    ),
-                }
+            OutputType::BySubscription(stype) => match stype {
+                SubscriptionType::Subscription1 => builder.content("story", &story_url()),
+                SubscriptionType::Subscription2 => builder.content("post", &post_url()),
             }
-            OutputType::ByLink(tguser) => {
-                if content.product_type == "story" {
-                    format!("<i>User <a href=\"tg://user?id={}\">{}</a> shared <a href=\"{}\">story</a></i>\n", tguser.id, tguser.name, story_url)
-                } else {
-                    format!("<i>User <a href=\"tg://user?id={}\">{}</a> shared <a href=\"{}\">post</a></i>:\n\n{}", tguser.id, tguser.name, post_url, text_info)
-                }
+            .action(ActionType::Posted)
+            .who(user_info.nickname(), &user_link(&user_info.username)),
+
+            OutputType::ByLink(tguser) => if content.product_type == "story" {
+                builder.content("story", &story_url())
+            } else {
+                builder.content("post", &post_url())
             }
+            .who(&tguser.name, &tguser.user_link())
+            .action(ActionType::Shared)
+            .from(user_info.nickname(), &user_link(&user_info.username)),
+        };
+
+        if let Some(caption) = &content.caption_text {
+            builder.description(caption.to_string());
         }
+
+        builder.size_limit(len).build()
     }
 
     fn message_format() -> ParseMode {

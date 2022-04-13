@@ -4,6 +4,7 @@ use pretty_env_logger;
 use teloxide::prelude2::*;
 
 mod api;
+mod common;
 mod database;
 mod processing;
 mod regexp;
