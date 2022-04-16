@@ -8,11 +8,12 @@ The idea is to aggregate a variety of accounts into one personal feed, so you wo
 #### Currently supported media:
 * Tiktok
 * Twitter (Except videos from Twitter, unfortunately, the current version of the Twitter V2 API doesn't support it)
+* Instagram
 
 #### Planned media:
-* Instagram
 * Telegram channels
 * Youtube
+* RSS feeds
 
 
 ### Features
