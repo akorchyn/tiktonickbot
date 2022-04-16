@@ -1,11 +1,10 @@
 use serde::{self, Deserialize};
-use teloxide::types::ParseMode;
 
 use crate::api::api_data_fetcher::ApiDataFetcher;
 use crate::api::default_loaders::DefaultDataFetcherInfo;
 use crate::api::{
     api_data_fetcher, Api, ApiName, DataForDownload, DataType, DatabaseInfoProvider, FromEnv,
-    GenerateMessage, GetId, OutputType, ReturnDataForDownload, ReturnUserInfo, SubscriptionType,
+    GetId, OutputType, PrepareDescription, ReturnDataForDownload, ReturnUserInfo, SubscriptionType,
 };
 use crate::common::description_builder::{ActionType, DescriptionBuilder};
 use crate::regexp;
@@ -186,8 +185,12 @@ impl ReturnUserInfo for UserInfo {
     }
 }
 
-impl GenerateMessage<UserInfo, Post> for InstagramAPI {
-    fn message(user_info: &UserInfo, content: &Post, stype: &OutputType, len: usize) -> String {
+impl PrepareDescription<UserInfo, Post> for InstagramAPI {
+    fn prepare_description(
+        user_info: &UserInfo,
+        content: &Post,
+        stype: &OutputType,
+    ) -> DescriptionBuilder {
         let post_url = || format!("https://instagram.com/p/{}/", content.url_code);
         let story_url = || {
             format!(
@@ -220,11 +223,6 @@ impl GenerateMessage<UserInfo, Post> for InstagramAPI {
         if let Some(caption) = &content.caption_text {
             builder.description(caption.to_string());
         }
-
-        builder.size_limit(len).build()
-    }
-
-    fn message_format() -> ParseMode {
-        ParseMode::Html
+        builder
     }
 }

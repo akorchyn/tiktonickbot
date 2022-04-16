@@ -1,6 +1,6 @@
 use crate::api::{
     api_data_fetcher, Api, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload,
-    DataType, DatabaseInfoProvider, FromEnv, GenerateMessage, GetId, OutputType,
+    DataType, DatabaseInfoProvider, FromEnv, GetId, OutputType, PrepareDescription,
     ReturnDataForDownload, ReturnUserInfo, ReturnUsername, SubscriptionType,
 };
 use crate::regexp;
@@ -10,8 +10,6 @@ use crate::common::description_builder::{ActionType, DescriptionBuilder};
 use anyhow::anyhow;
 use async_trait::async_trait;
 use serde::{self, Deserialize};
-use teloxide::types::ParseMode;
-use teloxide::types::ParseMode::Html;
 
 #[derive(Debug, Deserialize, Default)]
 pub(crate) struct UserInfo {
@@ -79,8 +77,12 @@ impl ApiName for TwitterAPI {
     }
 }
 
-impl GenerateMessage<UserInfo, Tweet> for TwitterAPI {
-    fn message(user: &UserInfo, tweet: &Tweet, output: &OutputType, len: usize) -> String {
+impl PrepareDescription<UserInfo, Tweet> for TwitterAPI {
+    fn prepare_description(
+        user: &UserInfo,
+        tweet: &Tweet,
+        output: &OutputType,
+    ) -> DescriptionBuilder {
         let tweet_link = format!("https://twitter.com/{}/status/{}", tweet.username, tweet.id);
         let user_link = |user: &str| format!("https://twitter.com/{}", user);
         let mut builder = DescriptionBuilder::new();
@@ -99,13 +101,9 @@ impl GenerateMessage<UserInfo, Tweet> for TwitterAPI {
                 .from(&tweet.name, &user_link(&tweet.username)),
         }
         .content("tweet", &tweet_link)
-        .description(tweet.text.clone())
-        .size_limit(len)
-        .build()
-    }
+        .description(tweet.text.clone());
 
-    fn message_format() -> ParseMode {
-        Html
+        builder
     }
 }
 

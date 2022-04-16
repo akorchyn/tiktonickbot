@@ -64,7 +64,7 @@ impl ApiDataFetcher {
         for<'b> T: Deserialize<'b>,
     {
         let url = format!(
-            "{url}/{api_type}/{request}",
+            "{url}/api/{api_type}/{request}",
             url = self.internal_api_url,
             api_type = self.api,
             request = request.request_string()

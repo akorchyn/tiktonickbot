@@ -11,6 +11,7 @@ pub(crate) struct DescriptionBuilder {
     from: Option<TextedLink>,
     description: Option<String>,
     size_limit: Option<usize>,
+    achieved_content_size_limit: Option<bool>,
 }
 
 impl DescriptionBuilder {
@@ -22,6 +23,7 @@ impl DescriptionBuilder {
             from: None,
             description: None,
             size_limit: None,
+            achieved_content_size_limit: None,
         }
     }
 
@@ -55,8 +57,22 @@ impl DescriptionBuilder {
         self
     }
 
+    pub(crate) fn achieved_content_size_limit(
+        &mut self,
+        achieved_content_size_limit: bool,
+    ) -> &mut Self {
+        self.achieved_content_size_limit = Some(achieved_content_size_limit);
+        self
+    }
+
     pub(crate) fn build(&self) -> String {
         let mut description = "<i>".to_string();
+
+        if let Some(achieved_content_size_limit) = self.achieved_content_size_limit {
+            if achieved_content_size_limit {
+                description.push_str("<b>Attached video is too huge for inline display.</b>\n\n");
+            }
+        }
 
         if let Some(who) = &self.who {
             description.push_str(&who.create_link());

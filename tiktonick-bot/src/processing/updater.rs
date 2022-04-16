@@ -49,7 +49,7 @@ where
         + ApiName
         + ApiContentReceiver
         + ApiUserInfoReceiver
-        + GenerateMessage<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
+        + PrepareDescription<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
 {
     // Todo: receive delay from api type.
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
@@ -120,7 +120,7 @@ where
     Api: ApiContentReceiver
         + ApiUserInfoReceiver
         + FromEnv<Api>
-        + GenerateMessage<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
+        + PrepareDescription<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
     <Api as ApiContentReceiver>::Out: ReturnDataForDownload + ReturnUsername,
     <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
 {
@@ -162,7 +162,7 @@ where
     Api: ApiContentReceiver
         + ApiUserInfoReceiver
         + FromEnv<Api>
-        + GenerateMessage<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
+        + PrepareDescription<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
     <Api as ApiContentReceiver>::Out: ReturnDataForDownload,
     <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
 {
@@ -264,7 +264,7 @@ where
         + ApiName
         + ApiContentReceiver
         + ApiUserInfoReceiver
-        + GenerateMessage<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
+        + PrepareDescription<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
 {
     let chats = user.get_chats_by_subscription_type(stype);
     if chats.is_none() {
@@ -336,7 +336,7 @@ where
         + ApiName
         + ApiContentReceiver
         + ApiUserInfoReceiver
-        + GenerateMessage<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
+        + PrepareDescription<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
 {
     let users = db.get_collection::<Api, crate::database::User>().await?;
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(2));

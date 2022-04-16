@@ -215,7 +215,7 @@ where
         + ApiName
         + ApiUserInfoReceiver
         + FromEnv<Api>
-        + GenerateMessage<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
+        + PrepareDescription<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
     <Api as ApiContentReceiver>::Out: ReturnDataForDownload,
     <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
 {

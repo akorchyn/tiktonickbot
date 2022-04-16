@@ -1,6 +1,6 @@
 use crate::api::{
-    api_data_fetcher, Api, ApiName, DataForDownload, DataType, DatabaseInfoProvider,
-    GenerateMessage, GetId, OutputType, ReturnDataForDownload, ReturnUserInfo, ReturnUsername,
+    api_data_fetcher, Api, ApiName, DataForDownload, DataType, DatabaseInfoProvider, GetId,
+    OutputType, PrepareDescription, ReturnDataForDownload, ReturnUserInfo, ReturnUsername,
     SubscriptionType,
 };
 use crate::regexp;
@@ -10,19 +10,17 @@ use crate::api::default_loaders::DefaultDataFetcherInfo;
 use crate::common::description_builder::{ActionType, DescriptionBuilder};
 use async_trait::async_trait;
 use serde::{self, Deserialize};
-use teloxide::types::ParseMode::Html;
 
 pub(crate) struct TiktokAPI {
     data_fetcher: api_data_fetcher::ApiDataFetcher,
 }
 
-impl GenerateMessage<TiktokAuthor, TiktokItem> for TiktokAPI {
-    fn message(
+impl PrepareDescription<TiktokAuthor, TiktokItem> for TiktokAPI {
+    fn prepare_description(
         user_info: &TiktokAuthor,
         item: &TiktokItem,
         output: &OutputType,
-        len: usize,
-    ) -> String {
+    ) -> DescriptionBuilder {
         let description = html_escape::encode_text(&item.description).to_string();
         let video_link = format!(
             "https://tiktok.com/@{}/video/{}",
@@ -49,12 +47,9 @@ impl GenerateMessage<TiktokAuthor, TiktokItem> for TiktokAPI {
                 ),
         }
         .content("video", &video_link)
-        .description(description)
-        .size_limit(len)
-        .build()
-    }
-    fn message_format() -> super::ParseMode {
-        Html
+        .description(description);
+
+        builder
     }
 }
 

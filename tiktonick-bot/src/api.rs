@@ -7,6 +7,7 @@ pub(crate) mod twitter;
 use async_trait::async_trait;
 use serde::Deserialize;
 
+use crate::common::description_builder::DescriptionBuilder;
 use teloxide::types::ParseMode;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -102,7 +103,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub(crate) enum DataType {
     Image,
     Video,
@@ -129,14 +130,12 @@ pub(crate) trait ReturnDataForDownload {
     fn data(&self) -> Vec<DataForDownload>;
 }
 
-pub(crate) trait GenerateMessage<UserInfo, Content> {
-    fn message(
+pub(crate) trait PrepareDescription<UserInfo, Content> {
+    fn prepare_description(
         user_info: &UserInfo,
         content: &Content,
         stype: &OutputType,
-        content_limit: usize,
-    ) -> String;
-    fn message_format() -> ParseMode;
+    ) -> DescriptionBuilder;
 }
 
 pub(crate) trait DatabaseInfoProvider {
