@@ -1,6 +1,7 @@
-use crate::api::api_requests::ApiUrlGenerator;
+use crate::api::api_data_fetcher::ApiDataFetcher;
 use crate::api::{ApiContentReceiver, ApiUserInfoReceiver, SubscriptionType};
 
+use crate::api::api_data_fetcher::Request;
 use async_trait::async_trait;
 use serde::Deserialize;
 
@@ -8,7 +9,7 @@ use serde::Deserialize;
 pub(crate) trait DefaultDataFetcherInfo {
     type UserInfo;
     type Content;
-    fn api_url_generator(&self) -> &ApiUrlGenerator;
+    fn data_fetcher(&self) -> &ApiDataFetcher;
     fn subscription_type_to_api_type(_: SubscriptionType) -> &'static str;
     async fn get_content_id_from_url(&self, url: &str) -> Option<String>;
 }
@@ -21,8 +22,8 @@ where
 {
     type Out = T::UserInfo;
     async fn get_user_info(&self, id: &str) -> anyhow::Result<Option<Self::Out>> {
-        self.api_url_generator()
-            .get_data::<T::UserInfo>(&self.api_url_generator().get_user_info(&id))
+        self.data_fetcher()
+            .get_data::<T::UserInfo>(Request::UserData(&id))
             .await
     }
 }
@@ -42,8 +43,8 @@ where
         etype: SubscriptionType,
     ) -> anyhow::Result<Vec<Self::Out>> {
         Ok(self
-            .api_url_generator()
-            .get_data::<Vec<T::Content>>(&self.api_url_generator().get_user_content_by_type(
+            .data_fetcher()
+            .get_data::<Vec<T::Content>>(Request::Content(
                 id,
                 T::subscription_type_to_api_type(etype),
                 count,
@@ -56,8 +57,8 @@ where
         let id = self.get_content_id_from_url(link).await;
         if let Some(id) = id {
             Ok(self
-                .api_url_generator()
-                .get_data::<Self::Out>(&self.api_url_generator().get_content_by_id(&id))
+                .data_fetcher()
+                .get_data::<Self::Out>(Request::ContentById(&id))
                 .await?)
         } else {
             Ok(None)

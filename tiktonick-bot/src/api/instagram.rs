@@ -1,10 +1,10 @@
 use serde::{self, Deserialize};
 use teloxide::types::ParseMode;
 
-use crate::api::api_requests::ApiUrlGenerator;
+use crate::api::api_data_fetcher::ApiDataFetcher;
 use crate::api::default_loaders::DefaultDataFetcherInfo;
 use crate::api::{
-    api_requests, Api, ApiName, DataForDownload, DataType, DatabaseInfoProvider, FromEnv,
+    api_data_fetcher, Api, ApiName, DataForDownload, DataType, DatabaseInfoProvider, FromEnv,
     GenerateMessage, GetId, OutputType, ReturnDataForDownload, ReturnUserInfo, SubscriptionType,
 };
 use crate::common::description_builder::{ActionType, DescriptionBuilder};
@@ -12,13 +12,13 @@ use crate::regexp;
 use async_trait::async_trait;
 
 pub(crate) struct InstagramAPI {
-    api_url_generator: api_requests::ApiUrlGenerator,
+    data_fetcher: api_data_fetcher::ApiDataFetcher,
 }
 
 impl FromEnv<InstagramAPI> for InstagramAPI {
     fn from_env() -> Self {
-        let api_url_generator = api_requests::ApiUrlGenerator::from_env("instagram".to_string());
-        Self { api_url_generator }
+        let data_fetcher = api_data_fetcher::ApiDataFetcher::from_env(InstagramAPI::api_type());
+        Self { data_fetcher }
     }
 }
 
@@ -50,8 +50,8 @@ impl DefaultDataFetcherInfo for InstagramAPI {
     type UserInfo = UserInfo;
     type Content = Post;
 
-    fn api_url_generator(&self) -> &ApiUrlGenerator {
-        &self.api_url_generator
+    fn data_fetcher(&self) -> &ApiDataFetcher {
+        &self.data_fetcher
     }
 
     fn subscription_type_to_api_type(s: SubscriptionType) -> &'static str {

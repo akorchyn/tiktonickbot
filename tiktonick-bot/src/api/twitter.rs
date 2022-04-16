@@ -1,10 +1,11 @@
 use crate::api::{
-    api_requests, Api, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload, DataType,
-    DatabaseInfoProvider, FromEnv, GenerateMessage, GetId, OutputType, ReturnDataForDownload,
-    ReturnUserInfo, ReturnUsername, SubscriptionType,
+    api_data_fetcher, Api, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload,
+    DataType, DatabaseInfoProvider, FromEnv, GenerateMessage, GetId, OutputType,
+    ReturnDataForDownload, ReturnUserInfo, ReturnUsername, SubscriptionType,
 };
 use crate::regexp;
 
+use crate::api::api_data_fetcher::Request;
 use crate::common::description_builder::{ActionType, DescriptionBuilder};
 use anyhow::anyhow;
 use async_trait::async_trait;
@@ -66,7 +67,7 @@ impl ReturnDataForDownload for Tweet {
 }
 
 pub(crate) struct TwitterAPI {
-    pub(crate) api_url_generator: api_requests::ApiUrlGenerator,
+    pub(crate) data_fetcher: api_data_fetcher::ApiDataFetcher,
 }
 
 impl ApiName for TwitterAPI {
@@ -125,7 +126,7 @@ impl DatabaseInfoProvider for TwitterAPI {
 impl FromEnv<TwitterAPI> for TwitterAPI {
     fn from_env() -> TwitterAPI {
         TwitterAPI {
-            api_url_generator: api_requests::ApiUrlGenerator::from_env("twitter".to_string()),
+            data_fetcher: api_data_fetcher::ApiDataFetcher::from_env(TwitterAPI::api_type()),
         }
     }
 }
@@ -145,10 +146,10 @@ impl ApiContentReceiver for TwitterAPI {
         };
 
         let count = count.min(100).max(5);
-        let url = self
-            .api_url_generator
-            .get_user_content_by_type(id, api, count);
-        let tweets = self.api_url_generator.get_data(&url).await?;
+        let tweets = self
+            .data_fetcher
+            .get_data(Request::Content(id, api, count))
+            .await?;
         if let Some(tweets) = tweets {
             Ok(process_tweet_data(tweets).await?)
         } else {
@@ -160,8 +161,8 @@ impl ApiContentReceiver for TwitterAPI {
         if let Some(cap) = regexp::TWITTER_LINK.captures(link) {
             log::info!("Started processing request");
             let tweets = self
-                .api_url_generator
-                .get_data::<TwitterTweetResult>(&self.api_url_generator.get_content_by_id(&cap[3]))
+                .data_fetcher
+                .get_data::<TwitterTweetResult>(Request::ContentById(&cap[3]))
                 .await?;
             return if let Some(tweets) = tweets {
                 log::info!("Started parsing received data");
@@ -226,8 +227,8 @@ impl ApiUserInfoReceiver for TwitterAPI {
     type Out = UserInfo;
     async fn get_user_info(&self, id: &str) -> Result<Option<UserInfo>, anyhow::Error> {
         let user_info = self
-            .api_url_generator
-            .get_data::<UserApiResponse>(&self.api_url_generator.get_user_info(id))
+            .data_fetcher
+            .get_data::<UserApiResponse>(Request::UserData(id))
             .await;
         if let Ok(user_info) = user_info {
             Ok(user_info.map(|user_info| user_info.data))

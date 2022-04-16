@@ -1,10 +1,11 @@
 use crate::api::{
-    api_requests, Api, ApiName, DataForDownload, DataType, DatabaseInfoProvider, GenerateMessage,
-    GetId, OutputType, ReturnDataForDownload, ReturnUserInfo, ReturnUsername, SubscriptionType,
+    api_data_fetcher, Api, ApiName, DataForDownload, DataType, DatabaseInfoProvider,
+    GenerateMessage, GetId, OutputType, ReturnDataForDownload, ReturnUserInfo, ReturnUsername,
+    SubscriptionType,
 };
 use crate::regexp;
 
-use crate::api::api_requests::ApiUrlGenerator;
+use crate::api::api_data_fetcher::ApiDataFetcher;
 use crate::api::default_loaders::DefaultDataFetcherInfo;
 use crate::common::description_builder::{ActionType, DescriptionBuilder};
 use async_trait::async_trait;
@@ -12,7 +13,7 @@ use serde::{self, Deserialize};
 use teloxide::types::ParseMode::Html;
 
 pub(crate) struct TiktokAPI {
-    api_url_generator: api_requests::ApiUrlGenerator,
+    data_fetcher: api_data_fetcher::ApiDataFetcher,
 }
 
 impl GenerateMessage<TiktokAuthor, TiktokItem> for TiktokAPI {
@@ -83,7 +84,7 @@ impl DatabaseInfoProvider for TiktokAPI {
 impl super::FromEnv<TiktokAPI> for TiktokAPI {
     fn from_env() -> TiktokAPI {
         TiktokAPI {
-            api_url_generator: api_requests::ApiUrlGenerator::from_env("tiktok".to_string()),
+            data_fetcher: api_data_fetcher::ApiDataFetcher::from_env(TiktokAPI::api_type()),
         }
     }
 }
@@ -93,8 +94,8 @@ impl DefaultDataFetcherInfo for TiktokAPI {
     type UserInfo = TiktokAuthor;
     type Content = TiktokItem;
 
-    fn api_url_generator(&self) -> &ApiUrlGenerator {
-        &self.api_url_generator
+    fn data_fetcher(&self) -> &ApiDataFetcher {
+        &self.data_fetcher
     }
 
     fn subscription_type_to_api_type(s: SubscriptionType) -> &'static str {
@@ -107,7 +108,7 @@ impl DefaultDataFetcherInfo for TiktokAPI {
     async fn get_content_id_from_url(&self, url: &str) -> Option<String> {
         let link = if regexp::TIKTOK_SHORT_LINK.is_match(url) {
             // First of all, we have to convert shortened link to full-one.
-            let full_link = api_requests::get_full_link(url).await.ok()?;
+            let full_link = api_data_fetcher::get_full_link(url).await.ok()?;
             log::info!("Original link({}) converted to {}", &url, &full_link);
             full_link
         } else {

@@ -1,67 +1,78 @@
+use crate::api::Api;
 use reqwest::redirect::Policy;
 use reqwest::Client;
 use serde::Deserialize;
 use std::env;
 
-pub(crate) struct ApiUrlGenerator {
+pub(crate) type Username<'a> = &'a str;
+pub(crate) type ContentType<'a> = &'a str;
+
+pub(crate) enum Request<'a> {
+    UserData(Username<'a>),
+    Content(Username<'a>, ContentType<'a>, u8),
+    ContentById(&'a str),
+}
+
+impl<'a> Request<'a> {
+    pub(crate) fn request_string(&self) -> String {
+        match self {
+            Request::UserData(username) => format!("user_info/{}", username),
+            Request::Content(username, content_type, count) => {
+                format!(
+                    "{content_type}/{username}/{count}",
+                    username = username,
+                    content_type = content_type,
+                    count = count
+                )
+            }
+            Request::ContentById(id) => format!("content_by_id/{}", id),
+        }
+    }
+}
+
+impl Api {
+    fn api_to_string(&self) -> String {
+        match self {
+            Api::Twitter => "twitter",
+            Api::Tiktok => "tiktok",
+            Api::Instagram => "instagram",
+        }
+        .to_string()
+    }
+}
+
+pub(crate) struct ApiDataFetcher {
     internal_api_url: String,
     internal_api_secret: String,
     api: String,
 }
 
-impl ApiUrlGenerator {
-    pub(crate) fn from_env(api: String) -> Self {
+impl ApiDataFetcher {
+    pub(crate) fn from_env(api: Api) -> Self {
         let internal_api_url = env::var("INTERNAL_API_URL").expect("INTERNAL_API_URL");
         let internal_api_secret = env::var("INTERNAL_API_SECRET").expect("INTERNAL_API_SECRET");
-        ApiUrlGenerator {
+
+        ApiDataFetcher {
             internal_api_url,
             internal_api_secret,
-            api,
+            api: api.api_to_string(),
         }
     }
 
-    pub(crate) fn get_content_by_id(&self, content_id: &str) -> String {
-        format!(
-            "{domain}/api/{api}/content_by_id/{id}",
-            domain = self.internal_api_url,
-            api = self.api,
-            id = content_id
-        )
-    }
-
-    pub(crate) fn get_user_content_by_type(
-        &self,
-        user_id: &str,
-        content_type: &str,
-        count: u8,
-    ) -> String {
-        format!(
-            "{domain}/api/{api}/{content_type}/{user_id}/{count}",
-            domain = self.internal_api_url,
-            api = self.api,
-            content_type = content_type,
-            user_id = user_id,
-            count = count
-        )
-    }
-
-    pub(crate) fn get_user_info(&self, user_id: &str) -> String {
-        format!(
-            "{domain}/api/{api}/user_info/{user_id}",
-            domain = self.internal_api_url,
-            api = self.api,
-            user_id = user_id
-        )
-    }
-
-    pub(crate) async fn get_data<T>(&self, url: &str) -> anyhow::Result<Option<T>>
+    pub(crate) async fn get_data<'a, T>(&self, request: Request<'a>) -> anyhow::Result<Option<T>>
     where
-        for<'a> T: Deserialize<'a>,
+        for<'b> T: Deserialize<'b>,
     {
-        log::info!("Requesting data from {}", url);
+        let url = format!(
+            "{url}/{api_type}/{request}",
+            url = self.internal_api_url,
+            api_type = self.api,
+            request = request.request_string()
+        );
+        log::info!("Requesting data from {}", &url);
         let client = Client::new();
         let response = client
-            .get(url)
+            .get(&url)
             .bearer_auth(&self.internal_api_secret)
             .send()
             .await?;

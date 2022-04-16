@@ -1,4 +1,4 @@
-mod api_requests;
+mod api_data_fetcher;
 mod default_loaders;
 pub(crate) mod instagram;
 pub(crate) mod tiktok;
