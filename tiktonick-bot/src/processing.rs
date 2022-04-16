@@ -4,17 +4,20 @@ pub(crate) mod updater;
 use futures::future::join_all;
 use futures::FutureExt;
 use teloxide::prelude2::*;
-use teloxide::types::{InputFile, InputMedia, InputMediaPhoto, InputMediaVideo};
+use teloxide::types::{InputFile, InputMedia, InputMediaPhoto, InputMediaVideo, ParseMode};
 
 use std::env;
 use std::fs::File;
 use std::io;
+use std::mem::take;
 use std::path::Path;
+use teloxide::adaptors::Throttle;
 
 use crate::api::{
-    Api, DataForDownload, GenerateMessage, OutputType, ReturnDataForDownload, ReturnTextInfo,
-    ReturnUserInfo, SubscriptionType,
+    Api, DataForDownload, OutputType, PrepareDescription, ReturnDataForDownload, ReturnUserInfo,
+    SubscriptionType,
 };
+use crate::common::description_builder::DescriptionBuilder;
 use crate::database::MongoDatabase;
 
 #[derive(Debug)]
@@ -50,63 +53,76 @@ async fn create_db() -> Result<MongoDatabase, anyhow::Error> {
 
 async fn send_content<Api, UserInfo, Content>(
     _: &Api,
-    bot: &AutoSend<Bot>,
+    bot: &AutoSend<Throttle<Bot>>,
     user_info: &UserInfo,
     chat_id: &str,
     content: &Content,
     output_type: OutputType,
 ) -> Result<(), anyhow::Error>
 where
-    Api: GenerateMessage<UserInfo, Content>,
+    Api: PrepareDescription<UserInfo, Content>,
     UserInfo: ReturnUserInfo,
-    Content: ReturnDataForDownload + ReturnTextInfo,
+    Content: ReturnDataForDownload,
 {
     let chat_id: i64 = chat_id.parse().unwrap();
+    let mut builder = Api::prepare_description(user_info, content, &output_type);
+    let send_text_message = |builder: DescriptionBuilder| {
+        let text = builder.build();
+        bot.send_message(chat_id, text)
+            .parse_mode(ParseMode::Html)
+            .disable_web_page_preview(true)
+            .disable_notification(true)
+    };
+
     if !content.is_data_for_download() {
-        (if let Some(v) = Api::message_format() {
-            bot.send_message(chat_id, Api::message(user_info, content, &output_type))
-                .parse_mode(v)
-        } else {
-            bot.send_message(chat_id, Api::message(user_info, content, &output_type))
-        })
-        .disable_web_page_preview(true)
-        .await?;
+        builder.size_limit(4096);
+        send_text_message(builder).await?;
     } else {
-        let mut is_first = true;
-        let media: Vec<InputMedia> = content
-            .data()
-            .into_iter()
-            .map(|item| {
-                let filename = format!("content/{}.{}", item.name, item.data_type.to_extension());
-                let media = InputFile::file(Path::new(&filename));
-                let caption = if is_first {
-                    is_first = false;
-                    Some(Api::message(user_info, content, &output_type))
-                } else {
-                    None
-                };
-                match item.data_type {
-                    crate::api::DataType::Image => InputMedia::Photo(InputMediaPhoto {
-                        media,
-                        caption,
-                        parse_mode: Api::message_format(),
-                        caption_entities: None,
-                    }),
-                    crate::api::DataType::Video => InputMedia::Video(InputMediaVideo {
-                        media,
-                        thumb: None,
-                        caption,
-                        parse_mode: Api::message_format(),
-                        caption_entities: None,
-                        width: None,
-                        height: None,
-                        duration: None,
-                        supports_streaming: None,
-                    }),
-                }
-            })
-            .collect();
-        bot.send_media_group(chat_id, media).await?;
+        let data = content.data();
+        let file_sizes = data.iter().fold(0, |acc, item| {
+            let filename = format!("content/{}.{}", item.name, item.data_type.to_extension());
+            acc + Path::new(&filename)
+                .metadata()
+                .map_or(100 * 1024 * 1024, |m| m.len())
+        });
+        // Telegram has file size limitation for bots.
+        if file_sizes > 50 * 1024 * 1024 {
+            builder.size_limit(4096).achieved_content_size_limit(true);
+            send_text_message(builder).await?;
+        } else {
+            let mut caption = Some(builder.size_limit(1024).build());
+            let media: Vec<InputMedia> = content
+                .data()
+                .into_iter()
+                .map(|item| {
+                    let filename =
+                        format!("content/{}.{}", item.name, item.data_type.to_extension());
+                    let media = InputFile::file(Path::new(&filename));
+                    match item.data_type {
+                        crate::api::DataType::Image => InputMedia::Photo(InputMediaPhoto {
+                            media,
+                            caption: take(&mut caption),
+                            parse_mode: Some(ParseMode::Html),
+                            caption_entities: None,
+                        }),
+                        crate::api::DataType::Video => InputMedia::Video(InputMediaVideo {
+                            media,
+                            thumb: None,
+                            caption: take(&mut caption),
+                            parse_mode: Some(ParseMode::Html),
+                            caption_entities: None,
+                            width: None,
+                            height: None,
+                            duration: None,
+                            supports_streaming: None,
+                        }),
+                    }
+                })
+                .collect();
+            bot.send_media_group(chat_id, media)
+                .disable_notification(true)
+                .await?;
+        }
     }
     Ok(())
 }

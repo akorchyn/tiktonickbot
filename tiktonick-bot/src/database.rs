@@ -23,8 +23,8 @@ pub(crate) struct User {
 impl User {
     pub fn get_chats_by_subscription_type(&self, stype: SubscriptionType) -> &Option<Vec<String>> {
         match stype {
-            SubscriptionType::Likes => &self.subscribed_chats_to_likes,
-            SubscriptionType::Content => &self.subscribed_chats_to_content,
+            SubscriptionType::Subscription1 => &self.subscribed_chats_to_likes,
+            SubscriptionType::Subscription2 => &self.subscribed_chats_to_content,
         }
     }
 }
@@ -72,8 +72,8 @@ impl DataStorage {
         stype: SubscriptionType,
     ) -> &Option<Vec<ContentRecord>> {
         match stype {
-            SubscriptionType::Likes => &self.liked_content,
-            SubscriptionType::Content => &self.processed_content,
+            SubscriptionType::Subscription1 => &self.liked_content,
+            SubscriptionType::Subscription2 => &self.processed_content,
         }
     }
 }
@@ -81,22 +81,22 @@ impl DataStorage {
 impl SubscriptionType {
     fn as_subscription_string(&self) -> &'static str {
         match *self {
-            SubscriptionType::Likes => "subscribed_chats_to_likes",
-            SubscriptionType::Content => "subscribed_chats_to_content",
+            SubscriptionType::Subscription1 => "subscribed_chats_to_likes",
+            SubscriptionType::Subscription2 => "subscribed_chats_to_content",
         }
     }
 
     fn as_chat_string(&self) -> &'static str {
         match *self {
-            SubscriptionType::Likes => "subscribed_for_likes_to",
-            SubscriptionType::Content => "subscribed_for_content_to",
+            SubscriptionType::Subscription1 => "subscribed_for_likes_to",
+            SubscriptionType::Subscription2 => "subscribed_for_content_to",
         }
     }
 
     fn as_storage_string(&self) -> &'static str {
         match *self {
-            SubscriptionType::Likes => "liked_content",
-            SubscriptionType::Content => "processed_content",
+            SubscriptionType::Subscription1 => "liked_content",
+            SubscriptionType::Subscription2 => "processed_content",
         }
     }
 }

@@ -1,29 +1,36 @@
-mod api_requests;
+mod api_data_fetcher;
+mod default_loaders;
+pub(crate) mod instagram;
 pub(crate) mod tiktok;
 pub(crate) mod twitter;
 
 use async_trait::async_trait;
 use serde::Deserialize;
 
+use crate::common::description_builder::DescriptionBuilder;
 use teloxide::types::ParseMode;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub(crate) enum Api {
     Tiktok,
     Twitter,
+    Instagram,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub(crate) enum SubscriptionType {
-    Likes,
-    Content,
+    Subscription1,
+    Subscription2,
 }
 
 impl SubscriptionType {
     pub(crate) fn iterator() -> impl Iterator<Item = SubscriptionType> {
-        [SubscriptionType::Content, SubscriptionType::Likes]
-            .iter()
-            .copied()
+        [
+            SubscriptionType::Subscription2,
+            SubscriptionType::Subscription1,
+        ]
+        .iter()
+        .copied()
     }
 }
 
@@ -31,6 +38,12 @@ impl SubscriptionType {
 pub(crate) struct TelegramUser {
     pub(crate) name: String,
     pub(crate) id: i64,
+}
+
+impl TelegramUser {
+    fn user_link(&self) -> String {
+        format!("tg://user?id={}", self.id)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -49,12 +62,6 @@ pub(crate) trait GetId {
 }
 
 #[async_trait]
-pub(crate) trait ApiAlive {
-    async fn is_alive(&self) -> bool;
-    async fn try_make_alive(&self) -> Result<(), anyhow::Error>;
-}
-
-#[async_trait]
 pub(crate) trait ApiUserInfoReceiver {
     type Out;
     async fn get_user_info(&self, id: &str) -> Result<Option<Self::Out>, anyhow::Error>;
@@ -70,7 +77,7 @@ pub(crate) trait ApiContentReceiver {
         etype: SubscriptionType,
     ) -> Result<Vec<Self::Out>, anyhow::Error>;
 
-    async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Self::Out>;
+    async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Option<Self::Out>>;
 }
 
 pub(crate) trait FromEnv<Api> {
@@ -96,7 +103,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub(crate) enum DataType {
     Image,
     Video,
@@ -123,13 +130,12 @@ pub(crate) trait ReturnDataForDownload {
     fn data(&self) -> Vec<DataForDownload>;
 }
 
-pub(crate) trait ReturnTextInfo {
-    fn text_info(&self) -> &str;
-}
-
-pub(crate) trait GenerateMessage<UserInfo, Content> {
-    fn message(user_info: &UserInfo, content: &Content, stype: &OutputType) -> String;
-    fn message_format() -> Option<ParseMode>;
+pub(crate) trait PrepareDescription<UserInfo, Content> {
+    fn prepare_description(
+        user_info: &UserInfo,
+        content: &Content,
+        stype: &OutputType,
+    ) -> DescriptionBuilder;
 }
 
 pub(crate) trait DatabaseInfoProvider {

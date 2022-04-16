@@ -1,162 +1,59 @@
 use crate::api::{
-    api_requests, Api, ApiAlive, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload,
-    DataType, DatabaseInfoProvider, GenerateMessage, GetId, OutputType, ReturnDataForDownload,
-    ReturnTextInfo, ReturnUserInfo, ReturnUsername, SubscriptionType,
+    api_data_fetcher, Api, ApiName, DataForDownload, DataType, DatabaseInfoProvider, GetId,
+    OutputType, PrepareDescription, ReturnDataForDownload, ReturnUserInfo, ReturnUsername,
+    SubscriptionType,
 };
 use crate::regexp;
 
+use crate::api::api_data_fetcher::ApiDataFetcher;
+use crate::api::default_loaders::DefaultDataFetcherInfo;
+use crate::common::description_builder::{ActionType, DescriptionBuilder};
 use async_trait::async_trait;
 use serde::{self, Deserialize};
-use std::env;
-use teloxide::types::ParseMode::Html;
 
-#[derive(Deserialize, Debug)]
-pub(crate) struct UserInfo {
-    #[serde(rename = "uniqueId")]
-    pub(crate) unique_user_id: String,
-    #[serde(rename = "nickname")]
-    pub(crate) nickname: String,
+pub(crate) struct TiktokAPI {
+    data_fetcher: api_data_fetcher::ApiDataFetcher,
 }
 
-impl ReturnUserInfo for UserInfo {
-    fn id(&self) -> &str {
-        &self.unique_user_id
-    }
-    fn unique_user_name(&self) -> &str {
-        &self.unique_user_id
-    }
-    fn nickname(&self) -> &str {
-        &self.nickname
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct Video {
-    pub(crate) id: String,
-    pub(crate) unique_user_id: String,
-    pub(crate) nickname: String,
-    pub(crate) download_address: String,
-    pub(crate) description: String,
-}
-
-impl ReturnUsername for Video {
-    fn username(&self) -> &str {
-        &self.unique_user_id
-    }
-}
-
-impl GetId for Video {
-    fn id(&self) -> &str {
-        &self.id
-    }
-}
-
-impl ReturnTextInfo for Video {
-    fn text_info(&self) -> &str {
-        &self.description
-    }
-}
-
-impl ReturnDataForDownload for Video {
-    fn is_data_for_download(&self) -> bool {
-        true
-    }
-    fn data(&self) -> Vec<DataForDownload> {
-        vec![DataForDownload {
-            url: self.download_address.clone(),
-            name: self.id.clone(),
-            data_type: DataType::Video,
-        }]
-    }
-}
-
-pub(crate) struct TiktokApi {
-    secret: String,
-    api_url_generator: api_requests::ApiUrlGenerator,
-}
-
-impl GenerateMessage<UserInfo, Video> for TiktokApi {
-    fn message(user_info: &UserInfo, video: &Video, output: &OutputType) -> String {
+impl PrepareDescription<TiktokAuthor, TiktokItem> for TiktokAPI {
+    fn prepare_description(
+        user_info: &TiktokAuthor,
+        item: &TiktokItem,
+        output: &OutputType,
+    ) -> DescriptionBuilder {
+        let description = html_escape::encode_text(&item.description).to_string();
         let video_link = format!(
             "https://tiktok.com/@{}/video/{}",
-            video.unique_user_id, video.id
+            item.author.unique_user_id, item.video.id
         );
+        let user_link = |user: &str| format!("https://tiktok.com/@{}", user);
+
+        let mut builder = DescriptionBuilder::new();
         match output {
-            OutputType::BySubscription(stype) => {
-                match stype {
-                    SubscriptionType::Likes => format!(
-                        "<i>User <a href=\"https://tiktok.com/@{}\">{}</a> liked <a href=\"{}\">video</a> from <a href=\"https://tiktok.com/@{}\">{}</a>:</i>\n\n{}",
-                        user_info.unique_user_id,
-                        user_info.nickname,
-                        video_link,
-                        video.unique_user_id,
-                        video.nickname,
-                        video.description
-                    ),
-                    SubscriptionType::Content => format!(
-                        "<i>User <a href=\"https://tiktok.com/@{}\">{}</a> posted <a href=\"{}\">video</a></i>:\n\n{}",
-                        video.unique_user_id, video.nickname, video_link, video.description
-                    ),
-                }
+            OutputType::BySubscription(stype) => match stype {
+                SubscriptionType::Subscription1 => builder.action(ActionType::Liked).from(
+                    &item.author.nickname,
+                    &user_link(&item.author.unique_user_id),
+                ),
+                SubscriptionType::Subscription2 => builder.action(ActionType::Posted),
             }
-        OutputType::ByLink(tguser) => {
-            format!("<i>User <a href=\"tg://user?id={}\">{}</a> shared <a href=\"{}\">video</a></i>:\n\n{}", tguser.id, tguser.name, video_link, video.description)
+            .who(&user_info.nickname, &user_link(&user_info.unique_user_id)),
+            OutputType::ByLink(tguser) => builder
+                .who(&tguser.name, &tguser.user_link())
+                .action(ActionType::Shared)
+                .from(
+                    &item.author.nickname,
+                    &user_link(&item.author.unique_user_id),
+                ),
         }
-        }
-    }
-    fn message_format() -> Option<super::ParseMode> {
-        Some(Html)
+        .content("video", &video_link)
+        .description(description);
+
+        builder
     }
 }
 
-impl TiktokApi {
-    async fn load_data(&self, url: &str) -> Result<Vec<Video>, anyhow::Error> {
-        let likes = api_requests::get_data::<Vec<TiktokItem>>(url, &self.secret).await?;
-        log::info!("Received item. Item status is {}", likes.is_some());
-        let likes = likes.unwrap_or_default();
-        log::info!(
-            "Received {} videos from request for {} url",
-            likes.len(),
-            url
-        );
-        Ok(likes
-            .into_iter()
-            .map(|item| Video {
-                id: item.video.id,
-                unique_user_id: item.author.unique_user_id,
-                nickname: item.author.nickname,
-                description: html_escape::encode_text(&item.description).to_string(),
-                download_address: item.video.download_address,
-            })
-            .collect())
-    }
-}
-
-#[async_trait]
-impl ApiAlive for TiktokApi {
-    async fn is_alive(&self) -> bool {
-        let client = reqwest::Client::new();
-        client
-            .get(self.api_url_generator.get_tiktok_status())
-            .bearer_auth(&self.secret)
-            .send()
-            .await
-            .map(|response| response.status() == 200)
-            .unwrap_or(false)
-    }
-
-    async fn try_make_alive(&self) -> Result<(), anyhow::Error> {
-        let client = reqwest::Client::new();
-        client
-            .post(self.api_url_generator.get_change_proxy_link())
-            .bearer_auth(&self.secret)
-            .send()
-            .await?;
-        Ok(())
-    }
-}
-
-impl ApiName for TiktokApi {
+impl ApiName for TiktokAPI {
     fn name() -> &'static str {
         "Tiktok"
     }
@@ -165,7 +62,7 @@ impl ApiName for TiktokApi {
     }
 }
 
-impl DatabaseInfoProvider for TiktokApi {
+impl DatabaseInfoProvider for TiktokAPI {
     fn user_collection_name() -> &'static str {
         "tiktokUsers"
     }
@@ -179,64 +76,44 @@ impl DatabaseInfoProvider for TiktokApi {
     }
 }
 
-impl super::FromEnv<TiktokApi> for TiktokApi {
-    fn from_env() -> TiktokApi {
-        TiktokApi {
-            secret: env::var("TIKTOK_API_SECRET").unwrap_or_else(|_| "blahblah".to_string()),
-            api_url_generator: api_requests::ApiUrlGenerator::from_env(),
+impl super::FromEnv<TiktokAPI> for TiktokAPI {
+    fn from_env() -> TiktokAPI {
+        TiktokAPI {
+            data_fetcher: api_data_fetcher::ApiDataFetcher::from_env(TiktokAPI::api_type()),
         }
     }
 }
 
 #[async_trait]
-impl ApiContentReceiver for TiktokApi {
-    type Out = Video;
-    async fn get_content(
-        &self,
-        id: &str,
-        count: u8,
-        etype: SubscriptionType,
-    ) -> Result<Vec<Video>, anyhow::Error> {
-        let api = match etype {
-            SubscriptionType::Content => "user_videos",
-            SubscriptionType::Likes => "user_likes",
-        };
-        self.load_data(&self.api_url_generator.get_tiktok_api_call(&api, id, count))
-            .await
+impl DefaultDataFetcherInfo for TiktokAPI {
+    type UserInfo = TiktokAuthor;
+    type Content = TiktokItem;
+
+    fn data_fetcher(&self) -> &ApiDataFetcher {
+        &self.data_fetcher
     }
 
-    async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Video> {
-        let link = if regexp::TIKTOK_SHORT_LINK.is_match(link) {
+    fn subscription_type_to_api_type(s: SubscriptionType) -> &'static str {
+        match s {
+            SubscriptionType::Subscription1 => "likes",
+            SubscriptionType::Subscription2 => "videos",
+        }
+    }
+
+    async fn get_content_id_from_url(&self, url: &str) -> Option<String> {
+        let link = if regexp::TIKTOK_SHORT_LINK.is_match(url) {
             // First of all, we have to convert shortened link to full-one.
-            let full_link = api_requests::get_full_link(link).await?;
-            log::info!("Original link({}) converted to {}", &link, &full_link);
+            let full_link = api_data_fetcher::get_full_link(url).await.ok()?;
+            log::info!("Original link({}) converted to {}", &url, &full_link);
             full_link
         } else {
-            link.to_string()
+            url.to_string()
         };
 
-        if let Some(cap) = regexp::TIKTOK_FULL_LINK.captures(&link) {
-            let video_id = &cap[3];
-            let mut data = self
-                .load_data(&self.api_url_generator.get_tiktok_video_by_id_link(video_id))
-                .await?;
-            if let Some(video) = data.pop() {
-                return Ok(video);
-            }
-        }
-        Err(anyhow::anyhow!("Failed to fetch video by link"))
-    }
-}
-
-#[async_trait]
-impl ApiUserInfoReceiver for TiktokApi {
-    type Out = UserInfo;
-    async fn get_user_info(&self, id: &str) -> Result<Option<UserInfo>, anyhow::Error> {
-        Ok(api_requests::get_data::<UserInfo>(
-            &self.api_url_generator.get_tiktok_user_info(&id),
-            &self.secret,
-        )
-        .await?)
+        regexp::TIKTOK_FULL_LINK
+            .captures(&link)
+            .and_then(|cap| cap.get(3))
+            .map(|m| m.as_str().to_string())
     }
 }
 
@@ -252,17 +129,54 @@ struct TiktokVideo {
 }
 
 #[derive(Deserialize, Debug)]
-struct TiktokAuthor {
+pub(crate) struct TiktokAuthor {
     #[serde(rename = "uniqueId")]
     unique_user_id: String,
     #[serde(rename = "nickname")]
     nickname: String,
 }
 
+impl ReturnUserInfo for TiktokAuthor {
+    fn id(&self) -> &str {
+        &self.unique_user_id
+    }
+    fn unique_user_name(&self) -> &str {
+        &self.unique_user_id
+    }
+    fn nickname(&self) -> &str {
+        &self.nickname
+    }
+}
+
 #[derive(Deserialize, Debug)]
-struct TiktokItem {
+pub(crate) struct TiktokItem {
     video: TiktokVideo,
     author: TiktokAuthor,
     #[serde(rename = "desc")]
     description: String,
+}
+
+impl ReturnUsername for TiktokItem {
+    fn username(&self) -> &str {
+        &self.author.unique_user_name()
+    }
+}
+
+impl GetId for TiktokItem {
+    fn id(&self) -> &str {
+        &self.video.id
+    }
+}
+
+impl ReturnDataForDownload for TiktokItem {
+    fn is_data_for_download(&self) -> bool {
+        true
+    }
+    fn data(&self) -> Vec<DataForDownload> {
+        vec![DataForDownload {
+            url: self.video.download_address.clone(),
+            name: self.video.id.clone(),
+            data_type: DataType::Video,
+        }]
+    }
 }

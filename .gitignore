@@ -1,6 +1,7 @@
 **/target
 **/content
 **/.idea
+**/.vscode
 **/__pycache__
 **/env
 .env

@@ -1,0 +1,45 @@
+[api]
+name = "Instagram"
+
+[commands]
+list=["last_sub_1", "last_sub_2", "last_n_sub_1", "last_n_sub_2", "subscribe_1", "subscribe_2", "unsubscribe_1", "unsubscribe_2"]
+description="Supported commands for Instagram:"
+[commands.last_sub_1]
+    tg_command = "last_story"
+    description = "Send last Instagram story for given user"
+    arguments = ["String"]
+
+[commands.last_sub_2]
+    tg_command = "last_post"
+    description = "Send last Instagram post for given user"
+    arguments = ["String"]
+
+[commands.last_n_sub_1]
+    tg_command = "last_stories"
+    description = "Send last n Instagram stories for given user"
+    arguments = ["String", "u8"]
+
+[commands.last_n_sub_2]
+    tg_command = "last_posts"
+    description = "Send last n Instagram posts for given user"
+    arguments = ["String", "u8"]
+
+[commands.subscribe_1]
+    tg_command = "subscribe_stories"
+    description = "Subscribe to receive notifications about new stories for given user"
+    arguments = ["String"]
+
+[commands.subscribe_2]
+    tg_command = "subscribe_posts"
+    description = "Subscribe to receive notifications about new posts for given user"
+    arguments = ["String"]
+
+[commands.unsubscribe_1]
+    tg_command = "unsubscribe_stories"
+    description = "Unsubscribe from receiving notifications about new stories for given user"
+    arguments = ["String"]
+
+[commands.unsubscribe_2]
+    tg_command = "unsubscribe_posts"
+    description = "Unsubscribe from receiving notifications about new posts for given user"
+    arguments = ["String"]

@@ -1,0 +1,15 @@
+[api]
+name = "Basic"
+
+[commands]
+list=["help", "subscriptions"]
+description="Basic supported commands:"
+[commands.help]
+tg_command = "help"
+description = "Display this help message"
+arguments = []
+
+[commands.subscriptions]
+tg_command = "subscriptions"
+description = "Display list of the subscription for this chat"
+arguments = []

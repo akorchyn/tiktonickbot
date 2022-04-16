@@ -1,0 +1,45 @@
+[api]
+name = "Twitter"
+
+[commands]
+list=["last_sub_1", "last_sub_2", "last_n_sub_1", "last_n_sub_2", "subscribe_1", "subscribe_2", "unsubscribe_1", "unsubscribe_2"]
+description="Supported commands for Twitter:"
+[commands.last_sub_1]
+tg_command = "ltweet"
+description = "Send last liked tweet for given user"
+arguments = ["String"]
+
+[commands.last_sub_2]
+tg_command = "tweet"
+description = "Send last tweet for given user"
+arguments = ["String"]
+
+[commands.last_n_sub_1]
+tg_command = "ltweets"
+description = "Send last n liked tweets for given user"
+arguments = ["String", "u8"]
+
+[commands.last_n_sub_2]
+tg_command = "tweets"
+description = "Send last n tweets for given user"
+arguments = ["String", "u8"]
+
+[commands.subscribe_1]
+tg_command = "sub_twitter_likes"
+description = "Subscribe to receive notifications about new liked tweets for given user"
+arguments = ["String"]
+
+[commands.subscribe_2]
+tg_command = "sub_tweets"
+description = "Subscribe to receive notifications about new tweets for given user"
+arguments = ["String"]
+
+[commands.unsubscribe_1]
+tg_command = "unsub_twitter_likes"
+description = "Unsubscribe from receiving notifications about new liked tweets for given user"
+arguments = ["String"]
+
+[commands.unsubscribe_2]
+tg_command = "unsub_tweets"
+description = "Unsubscribe from receiving notifications about new tweets for given user"
+arguments = ["String"]

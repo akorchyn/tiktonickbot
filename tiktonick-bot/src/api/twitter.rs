@@ -1,17 +1,15 @@
-use std::env;
-
 use crate::api::{
-    api_requests, Api, ApiAlive, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload,
-    DataType, DatabaseInfoProvider, FromEnv, GenerateMessage, GetId, OutputType,
-    ReturnDataForDownload, ReturnTextInfo, ReturnUserInfo, ReturnUsername, SubscriptionType,
+    api_data_fetcher, Api, ApiContentReceiver, ApiName, ApiUserInfoReceiver, DataForDownload,
+    DataType, DatabaseInfoProvider, FromEnv, GetId, OutputType, PrepareDescription,
+    ReturnDataForDownload, ReturnUserInfo, ReturnUsername, SubscriptionType,
 };
 use crate::regexp;
 
-use anyhow::{anyhow, Error};
+use crate::api::api_data_fetcher::Request;
+use crate::common::description_builder::{ActionType, DescriptionBuilder};
+use anyhow::anyhow;
 use async_trait::async_trait;
 use serde::{self, Deserialize};
-use teloxide::types::ParseMode;
-use teloxide::types::ParseMode::Html;
 
 #[derive(Debug, Deserialize, Default)]
 pub(crate) struct UserInfo {
@@ -66,30 +64,11 @@ impl ReturnDataForDownload for Tweet {
     }
 }
 
-impl ReturnTextInfo for Tweet {
-    fn text_info(&self) -> &str {
-        &self.text
-    }
+pub(crate) struct TwitterAPI {
+    pub(crate) data_fetcher: api_data_fetcher::ApiDataFetcher,
 }
 
-pub(crate) struct TwitterApi {
-    secret: String,
-    api_url_generator: api_requests::ApiUrlGenerator,
-}
-
-#[async_trait]
-impl ApiAlive for TwitterApi {
-    async fn is_alive(&self) -> bool {
-        // Twitter API is official. So we can just ignore for now. Probably, we will implement credentials switch in nearby future.
-        true
-    }
-
-    async fn try_make_alive(&self) -> Result<(), Error> {
-        Ok(())
-    }
-}
-
-impl ApiName for TwitterApi {
+impl ApiName for TwitterAPI {
     fn name() -> &'static str {
         "Twitter"
     }
@@ -98,35 +77,37 @@ impl ApiName for TwitterApi {
     }
 }
 
-impl GenerateMessage<UserInfo, Tweet> for TwitterApi {
-    fn message(user: &UserInfo, tweet: &Tweet, output: &OutputType) -> String {
+impl PrepareDescription<UserInfo, Tweet> for TwitterAPI {
+    fn prepare_description(
+        user: &UserInfo,
+        tweet: &Tweet,
+        output: &OutputType,
+    ) -> DescriptionBuilder {
         let tweet_link = format!("https://twitter.com/{}/status/{}", tweet.username, tweet.id);
-        match output {
-            OutputType::BySubscription(stype) => {
-                match stype {
-                    SubscriptionType::Likes => format!(
-                        "<i><a href=\"https://www.twitter.com/{}\">{}</a> liked <a href=\"{}\">tweet</a> from <a href=\"https://www.twitter.com/{}\">{}</a>:</i>\n\n{}",
-                        user.username, user.name, tweet_link, tweet.username, tweet.name, tweet.text
-                    ),
-                    SubscriptionType::Content => format!(
-                        "<i><a href=\"https://www.twitter.com/{}\">{}</a> posted <a href=\"{}\">tweet</a>:</i>\n\n{}",
-                        tweet.username, tweet.name, tweet_link, tweet.text
-                    ),
-                }
-            }
-        OutputType::ByLink(tguser) => {
-                format!("<i><a href=\"tg://user?id={}\">{}</a> shared <a href=\"{}\">tweet</a>:</i>\n\n{}",
-                    tguser.id, tguser.name, tweet_link, tweet.text)
-            }
-        }
-    }
+        let user_link = |user: &str| format!("https://twitter.com/{}", user);
+        let mut builder = DescriptionBuilder::new();
 
-    fn message_format() -> Option<ParseMode> {
-        Some(Html)
+        match output {
+            OutputType::BySubscription(stype) => match stype {
+                SubscriptionType::Subscription1 => builder
+                    .action(ActionType::Liked)
+                    .from(&tweet.name, &user_link(&tweet.username)),
+                SubscriptionType::Subscription2 => builder.action(ActionType::Posted),
+            }
+            .who(&user.name, &user_link(&user.username)),
+            OutputType::ByLink(tguser) => builder
+                .who(&tguser.name, &tguser.user_link())
+                .action(ActionType::Shared)
+                .from(&tweet.name, &user_link(&tweet.username)),
+        }
+        .content("tweet", &tweet_link)
+        .description(tweet.text.clone());
+
+        builder
     }
 }
 
-impl DatabaseInfoProvider for TwitterApi {
+impl DatabaseInfoProvider for TwitterAPI {
     fn user_collection_name() -> &'static str {
         "twitterUsers"
     }
@@ -140,18 +121,16 @@ impl DatabaseInfoProvider for TwitterApi {
     }
 }
 
-impl FromEnv<TwitterApi> for TwitterApi {
-    fn from_env() -> TwitterApi {
-        TwitterApi {
-            secret: env::var("TWITTER_API_BEARER_SECRET")
-                .expect("TWITTER_API_BEARER_SECRET is not set"),
-            api_url_generator: api_requests::ApiUrlGenerator::from_env(),
+impl FromEnv<TwitterAPI> for TwitterAPI {
+    fn from_env() -> TwitterAPI {
+        TwitterAPI {
+            data_fetcher: api_data_fetcher::ApiDataFetcher::from_env(TwitterAPI::api_type()),
         }
     }
 }
 
 #[async_trait]
-impl ApiContentReceiver for TwitterApi {
+impl ApiContentReceiver for TwitterAPI {
     type Out = Tweet;
     async fn get_content(
         &self,
@@ -160,13 +139,15 @@ impl ApiContentReceiver for TwitterApi {
         stype: SubscriptionType,
     ) -> Result<Vec<Tweet>, anyhow::Error> {
         let api = match stype {
-            SubscriptionType::Content => "tweets",
-            SubscriptionType::Likes => "liked_tweets",
+            SubscriptionType::Subscription2 => "posts",
+            SubscriptionType::Subscription1 => "likes",
         };
 
         let count = count.min(100).max(5);
-        let url = self.api_url_generator.get_twitter_api_call(api, id, count);
-        let tweets = api_requests::get_data(&url, &self.secret).await?;
+        let tweets = self
+            .data_fetcher
+            .get_data(Request::Content(id, api, count))
+            .await?;
         if let Some(tweets) = tweets {
             Ok(process_tweet_data(tweets).await?)
         } else {
@@ -174,20 +155,19 @@ impl ApiContentReceiver for TwitterApi {
         }
     }
 
-    async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Tweet> {
+    async fn get_content_for_link(&self, link: &str) -> anyhow::Result<Option<Tweet>> {
         if let Some(cap) = regexp::TWITTER_LINK.captures(link) {
             log::info!("Started processing request");
-            let tweets = api_requests::get_data::<TwitterTweetResult>(
-                &self.api_url_generator.get_tweet_link(&cap[3]),
-                &self.secret,
-            )
-            .await?;
-            if let Some(tweets) = tweets {
+            let tweets = self
+                .data_fetcher
+                .get_data::<TwitterTweetResult>(Request::ContentById(&cap[3]))
+                .await?;
+            return if let Some(tweets) = tweets {
                 log::info!("Started parsing received data");
-                if let Some(tweet) = process_tweet_data(tweets).await?.pop() {
-                    return Ok(tweet);
-                }
-            }
+                Ok(process_tweet_data(tweets).await?.pop())
+            } else {
+                Ok(None)
+            };
         }
         return Err(anyhow!("Error processing {}", link));
     }
@@ -201,15 +181,14 @@ async fn process_tweet_data(tweets: TwitterTweetResult) -> Result<Vec<Tweet>, an
         Data::Single(elem) => vec![elem],
     };
 
-    Ok(data
-        .into_iter()
-        .map(|tweet| {
+    data.into_iter()
+        .map(|tweet| -> anyhow::Result<Tweet> {
             let user_info = tweets
                 .includes
                 .users
                 .iter()
                 .find(|i| tweet.author_id == i.id)
-                .expect("Api should provide users info");
+                .ok_or_else(|| anyhow!("Twitter api failure. Api should provide user info"))?;
             let attachments = if tweet.attachments.is_some() && !media.is_empty() {
                 let mut attachments = Vec::new();
                 for media_key in tweet.attachments.unwrap().media_keys.into_iter() {
@@ -230,26 +209,25 @@ async fn process_tweet_data(tweets: TwitterTweetResult) -> Result<Vec<Tweet>, an
             } else {
                 None
             };
-            Tweet {
+            Ok(Tweet {
                 id: tweet.id,
                 text: tweet.text,
                 name: user_info.name.clone(),
                 username: user_info.username.clone(),
                 attachments,
-            }
+            })
         })
-        .collect())
+        .collect::<anyhow::Result<Vec<Tweet>>>()
 }
 
 #[async_trait]
-impl ApiUserInfoReceiver for TwitterApi {
+impl ApiUserInfoReceiver for TwitterAPI {
     type Out = UserInfo;
     async fn get_user_info(&self, id: &str) -> Result<Option<UserInfo>, anyhow::Error> {
-        let user_info = api_requests::get_data::<UserApiResponse>(
-            &self.api_url_generator.get_twitter_user_info(id),
-            &self.secret,
-        )
-        .await;
+        let user_info = self
+            .data_fetcher
+            .get_data::<UserApiResponse>(Request::UserData(id))
+            .await;
         if let Ok(user_info) = user_info {
             Ok(user_info.map(|user_info| user_info.data))
         } else {

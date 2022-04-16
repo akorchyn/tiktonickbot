@@ -1,137 +1,53 @@
 use std::sync::mpsc::SyncSender;
+use teloxide::adaptors::Throttle;
 use teloxide::{prelude2::*, utils::command::BotCommand};
 
-use crate::api::tiktok::TiktokApi;
-use crate::api::twitter::TwitterApi;
+use crate::api::instagram::InstagramAPI;
+use crate::api::tiktok::TiktokAPI;
+use crate::api::twitter::TwitterAPI;
 use crate::api::*;
 use crate::database::MongoDatabase;
 use crate::processing::{LinkInfo, RequestModel, UserRequest};
 use crate::regexp;
 
-#[derive(BotCommand, Clone)]
-#[command(rename = "lowercase", description = "These commands are supported:")]
-enum Command {
-    // General info:
-    #[command(description = "display this text.")]
-    Help,
-    #[command(
-        rename = "subscriptions",
-        description = "shows subscriptions for this chat"
-    )]
-    ShowSubscriptions,
-    // Twitter commands:
-    #[command(rename = "tweet", description = "sends last tweet for given user.")]
-    LastTweet(String),
-    #[command(
-        rename = "tweets",
-        description = "sends last n tweets for given user.",
-        parse_with = "split"
-    )]
-    LastNTweets { username: String, n: u8 },
-    #[command(
-        rename = "ltweet",
-        description = "sends last liked tweet for given user."
-    )]
-    LastLikedTweet(String),
-    #[command(
-        rename = "ltweets",
-        description = "sends last n liked tweets for given user.",
-        parse_with = "split"
-    )]
-    LastNLikedTweet { username: String, n: u8 },
+#[macro_use]
+mod macros;
+mod commands;
 
-    // Tiktok commands:
-    #[command(rename = "ltiktok", description = "sends last like for given user.")]
-    LastLike(String),
-    #[command(
-        rename = "ltiktoks",
-        description = "sends last n likes for given user.",
-        parse_with = "split"
-    )]
-    LastNLike { username: String, n: u8 },
-    #[command(rename = "tiktok", description = "sends last video for given user.")]
-    LastVideo(String),
-    #[command(
-        rename = "tiktoks",
-        description = "sends last n videos for given user.",
-        parse_with = "split"
-    )]
-    LastNVideo { username: String, n: u8 },
-    #[command(
-        rename = "sub_tiktok_likes",
-        description = "subscribe chat to tiktok user likes feed."
-    )]
-    TiktokSubscribeLikes(String),
-    #[command(
-        rename = "sub_tiktok",
-        description = "subscribe chat to tiktok user likes feed."
-    )]
-    TiktokSubscribeVideo(String),
-    #[command(
-        rename = "unsub_tiktok_likes",
-        description = "unsubscribe chat from tiktok user video feed."
-    )]
-    TiktokUnsubscribeLikes(String),
-    #[command(
-        rename = "unsub_tiktok",
-        description = "unsubscribe chat from tiktok user video feed."
-    )]
-    TiktokUnsubscribeVideo(String),
-    #[command(
-        rename = "sub_twitter_likes",
-        description = "subscribe chat to tiktok user likes feed."
-    )]
-    TwitterSubscribeLikes(String),
-    #[command(
-        rename = "sub_twitter",
-        description = "subscribe chat to tiktok user likes feed."
-    )]
-    TwitterSubscribeVideo(String),
-    #[command(
-        rename = "unsub_twitter_likes",
-        description = "unsubscribe chat from tiktok user video feed."
-    )]
-    TwitterUnsubscribeLikes(String),
-    #[command(
-        rename = "unsub_twitter",
-        description = "unsubscribe chat from tiktok user video feed."
-    )]
-    TwitterUnsubscribeVideo(String),
-}
+use commands::*;
 
-#[derive(BotCommand, Clone)]
-#[command(rename = "lowercase", description = "Maintainer commands")]
-enum MaintainerCommands {
-    #[command(description = "Send new cookie value")]
-    SetNewCookie(String),
-}
+generate_api_handler!(twitter_api_handler, TwitterAPI, TwitterCommands);
+generate_api_handler!(instagram_api_handler, InstagramAPI, InstagramCommands);
+generate_api_handler!(tiktok_api_handler, TiktokAPI, TiktokCommands);
 
 #[derive(Clone)]
 struct ConfigParameters {
-    bot_maintainer: i64,
     req_sender: SyncSender<UserRequest>,
 }
 
-pub(crate) async fn run(bot: AutoSend<Bot>, req_sender: SyncSender<UserRequest>) {
-    let parameters = ConfigParameters {
-        bot_maintainer: std::env::var("TELEGRAM_ADMIN_ID").unwrap().parse().unwrap(),
-        req_sender,
-    };
+pub(crate) async fn run(bot: AutoSend<Throttle<Bot>>, req_sender: SyncSender<UserRequest>) {
+    let parameters = ConfigParameters { req_sender };
 
     let handler = Update::filter_message()
         .branch(
             dptree::entry()
-                .filter_command::<Command>()
+                .filter_command::<BasicCommands>()
                 .endpoint(command_handling),
         )
         .branch(
-            dptree::filter(|msg: Message, cfg: ConfigParameters| {
-                msg.from()
-                    .map(|user| user.id == cfg.bot_maintainer)
-                    .unwrap_or_default()
-            })
-            .filter_command::<MaintainerCommands>()
-            .endpoint(maintainer_handling),
+            dptree::entry()
+                .filter_command::<TwitterCommands>()
+                .endpoint(twitter_api_handler),
+        )
+        .branch(
+            dptree::entry()
+                .filter_command::<InstagramCommands>()
+                .endpoint(instagram_api_handler),
+        )
+        .branch(
+            dptree::entry()
+                .filter_command::<TiktokCommands>()
+                .endpoint(tiktok_api_handler),
         )
         .branch(
             dptree::filter(|msg: Message| {
@@ -139,6 +55,7 @@ pub(crate) async fn run(bot: AutoSend<Bot>, req_sender: SyncSender<UserRequest>)
                 regexp::TWITTER_LINK.is_match(text)
                     || regexp::TIKTOK_FULL_LINK.is_match(text)
                     || regexp::TIKTOK_SHORT_LINK.is_match(text)
+                    || regexp::INSTAGRAM_LINK.is_match(text)
             })
             .endpoint(link_handler),
         );
@@ -157,10 +74,10 @@ pub(crate) async fn run(bot: AutoSend<Bot>, req_sender: SyncSender<UserRequest>)
 
 async fn link_handler(
     message: Message,
-    _: AutoSend<Bot>,
+    _: AutoSend<Throttle<Bot>>,
     cfg: ConfigParameters,
 ) -> anyhow::Result<()> {
-    let chat_id = message.chat_id().to_string();
+    let chat_id = message.chat.id.to_string();
     if message.from().is_none() {
         return Ok(());
     }
@@ -177,6 +94,7 @@ async fn link_handler(
         (regexp::TWITTER_LINK.find_iter(text), Api::Twitter),
         (regexp::TIKTOK_FULL_LINK.find_iter(text), Api::Tiktok),
         (regexp::TIKTOK_SHORT_LINK.find_iter(text), Api::Tiktok),
+        (regexp::INSTAGRAM_LINK.find_iter(text), Api::Instagram),
     ] {
         for m in matches {
             let link_info = LinkInfo {
@@ -194,166 +112,23 @@ async fn link_handler(
 
 async fn command_handling(
     message: Message,
-    bot: AutoSend<Bot>,
-    command: Command,
-    cfg: ConfigParameters,
+    bot: AutoSend<Throttle<Bot>>,
+    command: BasicCommands,
 ) -> anyhow::Result<()> {
     let chat_id = message.chat.id.to_string();
     let status = match command {
-        Command::Help => {
-            let msg = if message.from().unwrap().id == cfg.bot_maintainer {
-                format!(
-                    "{}\n{}",
-                    Command::descriptions(),
-                    MaintainerCommands::descriptions()
-                )
-            } else {
-                Command::descriptions()
-            };
-            bot.send_message(message.chat_id(), msg).await?;
+        BasicCommands::Help => {
+            let text = format!(
+                "{}\n{}\n{}\n{}",
+                BasicCommands::descriptions(),
+                TwitterCommands::descriptions(),
+                InstagramCommands::descriptions(),
+                TiktokCommands::descriptions()
+            );
+            bot.send_message(message.chat.id, text).await?;
             Ok(())
         }
-        Command::ShowSubscriptions => show_subscriptions(&bot, &chat_id).await,
-        Command::LastTweet(username) => {
-            last_n_data::<TwitterApi>(
-                &bot,
-                &cfg.req_sender,
-                username,
-                1,
-                &chat_id,
-                SubscriptionType::Content,
-            )
-            .await
-        }
-        Command::LastNTweets { username, n } => {
-            last_n_data::<TwitterApi>(
-                &bot,
-                &cfg.req_sender,
-                username,
-                n,
-                &chat_id,
-                SubscriptionType::Content,
-            )
-            .await
-        }
-        Command::LastLikedTweet(username) => {
-            last_n_data::<TwitterApi>(
-                &bot,
-                &cfg.req_sender,
-                username,
-                1,
-                &chat_id,
-                SubscriptionType::Likes,
-            )
-            .await
-        }
-        Command::LastNLikedTweet { username, n } => {
-            last_n_data::<TwitterApi>(
-                &bot,
-                &cfg.req_sender,
-                username,
-                n,
-                &chat_id,
-                SubscriptionType::Likes,
-            )
-            .await
-        }
-        Command::LastLike(username) => {
-            last_n_data::<TiktokApi>(
-                &bot,
-                &cfg.req_sender,
-                username,
-                1,
-                &chat_id,
-                SubscriptionType::Likes,
-            )
-            .await
-        }
-        Command::LastNLike { username, n } => {
-            last_n_data::<TiktokApi>(
-                &bot,
-                &cfg.req_sender,
-                username,
-                n,
-                &chat_id,
-                SubscriptionType::Likes,
-            )
-            .await
-        }
-        Command::LastVideo(username) => {
-            last_n_data::<TiktokApi>(
-                &bot,
-                &cfg.req_sender,
-                username,
-                1,
-                &chat_id,
-                SubscriptionType::Content,
-            )
-            .await
-        }
-        Command::LastNVideo { username, n } => {
-            last_n_data::<TiktokApi>(
-                &bot,
-                &cfg.req_sender,
-                username,
-                n,
-                &chat_id,
-                SubscriptionType::Content,
-            )
-            .await
-        }
-        Command::TiktokSubscribeLikes(username) => {
-            subscribe::<TiktokApi>(
-                &bot,
-                &cfg.req_sender,
-                username,
-                &chat_id,
-                SubscriptionType::Likes,
-            )
-            .await
-        }
-        Command::TiktokSubscribeVideo(username) => {
-            subscribe::<TiktokApi>(
-                &bot,
-                &cfg.req_sender,
-                username,
-                &chat_id,
-                SubscriptionType::Content,
-            )
-            .await
-        }
-        Command::TiktokUnsubscribeLikes(username) => {
-            unsubscribe::<TiktokApi>(&bot, username, &chat_id, SubscriptionType::Likes).await
-        }
-        Command::TiktokUnsubscribeVideo(username) => {
-            unsubscribe::<TiktokApi>(&bot, username, &chat_id, SubscriptionType::Content).await
-        }
-        Command::TwitterSubscribeLikes(username) => {
-            subscribe::<TwitterApi>(
-                &bot,
-                &cfg.req_sender,
-                username,
-                &chat_id,
-                SubscriptionType::Likes,
-            )
-            .await
-        }
-        Command::TwitterSubscribeVideo(username) => {
-            subscribe::<TwitterApi>(
-                &bot,
-                &cfg.req_sender,
-                username,
-                &chat_id,
-                SubscriptionType::Content,
-            )
-            .await
-        }
-        Command::TwitterUnsubscribeLikes(username) => {
-            unsubscribe::<TwitterApi>(&bot, username, &chat_id, SubscriptionType::Likes).await
-        }
-        Command::TwitterUnsubscribeVideo(username) => {
-            unsubscribe::<TwitterApi>(&bot, username, &chat_id, SubscriptionType::Content).await
-        }
+        BasicCommands::Subscriptions => show_subscriptions(&bot, &chat_id).await,
     };
     log::info!("Command handling finished");
     if let Err(e) = &status {
@@ -369,28 +144,6 @@ async fn command_handling(
             );
         }
     }
-    Ok(())
-}
-
-async fn maintainer_handling(
-    msg: Message,
-    bot: AutoSend<Bot>,
-    cmd: MaintainerCommands,
-) -> anyhow::Result<()> {
-    match cmd {
-        MaintainerCommands::SetNewCookie(cookie) => {
-            log::info!("Sending new cookie to the api: {}", cookie);
-            if let Some(user) = msg.from() {
-                let admin_id: String = std::env::var("TELEGRAM_ADMIN_ID").unwrap();
-                if user.id.to_string() == admin_id {
-                    // TiktokApi::from_env().send_api_new_cookie(cookie).await?;
-                    bot.send_message(msg.chat_id(), "Succeed").await?;
-                } else {
-                    bot.send_message(msg.chat_id(), "Not authorized").await?;
-                }
-            }
-        }
-    };
     Ok(())
 }
 
@@ -423,23 +176,26 @@ async fn get_subscription_string_for_api<Api: DatabaseInfoProvider + ApiName>(
     }
 }
 
-async fn show_subscriptions(bot: &AutoSend<Bot>, chat_id: &str) -> anyhow::Result<()> {
+async fn show_subscriptions(bot: &AutoSend<Throttle<Bot>>, chat_id: &str) -> anyhow::Result<()> {
     let db = super::create_db().await?;
-    let tiktok_subs = get_subscription_string_for_api::<TiktokApi>(chat_id, &db)
-        .await
-        .unwrap_or_default();
-    let twitter_subs = get_subscription_string_for_api::<TwitterApi>(chat_id, &db)
-        .await
-        .unwrap_or_default();
+    let sub_string = vec![
+        get_subscription_string_for_api::<TwitterAPI>(chat_id, &db).await?,
+        get_subscription_string_for_api::<InstagramAPI>(chat_id, &db).await?,
+        get_subscription_string_for_api::<TiktokAPI>(chat_id, &db).await?,
+    ]
+    .into_iter()
+    .filter(|s| !s.is_empty())
+    .collect::<Vec<String>>()
+    .join("");
 
-    let empty_text = "Currently, group doesn't have any subscriptions";
-    if !tiktok_subs.is_empty() || !twitter_subs.is_empty() {
+    if !sub_string.is_empty() {
         bot.send_message(
             chat_id.parse::<i64>().unwrap(),
-            format!("Group subscriptions:\n{}{}", tiktok_subs, twitter_subs),
+            format!("Group subscriptions:\n {}", sub_string),
         )
         .await?;
     } else {
+        let empty_text = "Currently, group doesn't have any subscriptions";
         bot.send_message(chat_id.parse::<i64>().unwrap(), empty_text)
             .await?;
     }
@@ -447,7 +203,7 @@ async fn show_subscriptions(bot: &AutoSend<Bot>, chat_id: &str) -> anyhow::Resul
 }
 
 async fn last_n_data<Api>(
-    bot: &AutoSend<Bot>,
+    bot: &AutoSend<Throttle<Bot>>,
     request_sender: &SyncSender<UserRequest>,
     username: String,
     n: u8,
@@ -459,8 +215,8 @@ where
         + ApiName
         + ApiUserInfoReceiver
         + FromEnv<Api>
-        + GenerateMessage<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
-    <Api as ApiContentReceiver>::Out: ReturnDataForDownload + ReturnTextInfo,
+        + PrepareDescription<<Api as ApiUserInfoReceiver>::Out, <Api as ApiContentReceiver>::Out>,
+    <Api as ApiContentReceiver>::Out: ReturnDataForDownload,
     <Api as ApiUserInfoReceiver>::Out: ReturnUserInfo,
 {
     let model = RequestModel {
@@ -479,7 +235,7 @@ where
 }
 
 async fn subscribe<Api>(
-    bot: &AutoSend<Bot>,
+    bot: &AutoSend<Throttle<Bot>>,
     req_sender: &SyncSender<UserRequest>,
     username: String,
     chat_id: &str,
@@ -516,7 +272,7 @@ where
 }
 
 async fn unsubscribe<Api>(
-    cx: &AutoSend<Bot>,
+    cx: &AutoSend<Throttle<Bot>>,
     username: String,
     chat_id: &str,
     stype: SubscriptionType,
