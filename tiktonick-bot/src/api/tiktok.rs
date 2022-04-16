@@ -158,7 +158,7 @@ pub(crate) struct TiktokItem {
 
 impl ReturnUsername for TiktokItem {
     fn username(&self) -> &str {
-        &self.author.unique_user_name()
+        self.author.unique_user_name()
     }
 }
 

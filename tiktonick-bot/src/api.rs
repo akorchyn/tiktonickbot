@@ -8,7 +8,6 @@ use async_trait::async_trait;
 use serde::Deserialize;
 
 use crate::common::description_builder::DescriptionBuilder;
-use teloxide::types::ParseMode;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub(crate) enum Api {

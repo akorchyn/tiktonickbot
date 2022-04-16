@@ -1,6 +1,5 @@
 use std::fs;
 
-use pretty_env_logger;
 use teloxide::prelude2::*;
 
 mod api;

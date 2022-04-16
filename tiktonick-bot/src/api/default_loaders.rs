@@ -23,7 +23,7 @@ where
     type Out = T::UserInfo;
     async fn get_user_info(&self, id: &str) -> anyhow::Result<Option<Self::Out>> {
         self.data_fetcher()
-            .get_data::<T::UserInfo>(Request::UserData(&id))
+            .get_data::<T::UserInfo>(Request::UserData(id))
             .await
     }
 }

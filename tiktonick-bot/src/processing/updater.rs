@@ -146,7 +146,7 @@ where
         }
     } else {
         let chat_id: i64 = link_info.chat_id.parse().unwrap();
-        bot.send_message(chat_id, format!("Post doesn't exist or it's private"))
+        bot.send_message(chat_id, "Post doesn't exist or it's private".to_string())
             .disable_notification(true)
             .await?;
         Ok(())

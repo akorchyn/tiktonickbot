@@ -62,7 +62,7 @@ impl DefaultDataFetcherInfo for InstagramAPI {
 
     async fn get_content_id_from_url(&self, url: &str) -> Option<String> {
         regexp::INSTAGRAM_LINK
-            .captures(&url)
+            .captures(url)
             .and_then(|cap| cap.get(2))
             .map(|m| m.as_str().to_string())
     }
