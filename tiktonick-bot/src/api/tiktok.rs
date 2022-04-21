@@ -21,7 +21,6 @@ impl PrepareDescription<TiktokAuthor, TiktokItem> for TiktokAPI {
         item: &TiktokItem,
         output: &OutputType,
     ) -> DescriptionBuilder {
-        let description = html_escape::encode_text(&item.description).to_string();
         let video_link = format!(
             "https://tiktok.com/@{}/video/{}",
             item.author.unique_user_id, item.video.id
@@ -47,7 +46,7 @@ impl PrepareDescription<TiktokAuthor, TiktokItem> for TiktokAPI {
                 ),
         }
         .content("video", &video_link)
-        .description(description);
+        .description(item.description.clone());
 
         builder
     }

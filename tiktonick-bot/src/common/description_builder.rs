@@ -1,3 +1,5 @@
+use teloxide::utils::html;
+
 pub(crate) enum ActionType {
     Liked,
     Shared,
@@ -66,11 +68,13 @@ impl DescriptionBuilder {
     }
 
     pub(crate) fn build(&self) -> String {
-        let mut description = "<i>".to_string();
+        let mut description = String::new();
 
         if let Some(achieved_content_size_limit) = self.achieved_content_size_limit {
             if achieved_content_size_limit {
-                description.push_str("<b>Attached video is too huge for inline display.</b>\n\n");
+                description.push_str(&html::bold(
+                    "Attached video is too huge for inline display.\n\n",
+                ));
             }
         }
 
@@ -96,10 +100,14 @@ impl DescriptionBuilder {
         if let Some(from) = &self.from {
             description.push_str(&format!(" from {}", from.create_link()));
         }
-        description.push_str("</i>");
+
+        if !description.is_empty() {
+            // Format header if it exist
+            description = html::italic(&description);
+        }
 
         if let Some(desc) = &self.description {
-            description.push_str(&format!(":\n\n{}", desc));
+            description.push_str(&format!(":\n\n{}", html::escape(desc)));
         }
 
         if let Some(size_limit) = self.size_limit {
@@ -135,10 +143,6 @@ impl TextedLink {
     }
 
     fn create_link(&self) -> String {
-        format!(
-            "<a href=\"{url}\">{text}</a>",
-            text = self.text,
-            url = self.url
-        )
+        html::link(&self.url, &self.text)
     }
 }
