@@ -1,8 +1,9 @@
 use std::fs;
 
-use teloxide::prelude2::*;
+use teloxide::prelude::*;
 
 mod api;
+mod api_prelude;
 mod common;
 mod database;
 mod processing;

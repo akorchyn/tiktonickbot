@@ -1,18 +1,26 @@
 mod api_data_fetcher;
 mod default_loaders;
+
+#[cfg(feature = "instagram")]
 pub(crate) mod instagram;
+#[cfg(feature = "tiktok")]
 pub(crate) mod tiktok;
+#[cfg(feature = "twitter")]
 pub(crate) mod twitter;
 
 use async_trait::async_trait;
 use serde::Deserialize;
+use teloxide::types::UserId;
 
 use crate::common::description_builder::DescriptionBuilder;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub(crate) enum Api {
+    #[cfg(feature = "tiktok")]
     Tiktok,
+    #[cfg(feature = "twitter")]
     Twitter,
+    #[cfg(feature = "instagram")]
     Instagram,
 }
 
@@ -36,12 +44,12 @@ impl SubscriptionType {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TelegramUser {
     pub(crate) name: String,
-    pub(crate) id: i64,
+    pub(crate) id: UserId,
 }
 
 impl TelegramUser {
     fn user_link(&self) -> String {
-        format!("tg://user?id={}", self.id)
+        self.id.url().to_string()
     }
 }
 

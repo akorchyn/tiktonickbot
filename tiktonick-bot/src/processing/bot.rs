@@ -1,11 +1,10 @@
 use std::sync::mpsc::SyncSender;
-use teloxide::adaptors::Throttle;
-use teloxide::{prelude2::*, utils::command::BotCommand};
+use teloxide::adaptors::{AutoSend, Throttle};
+use teloxide::types::ChatId;
+use teloxide::{prelude::*, utils::command::BotCommands};
 
-use crate::api::instagram::InstagramAPI;
-use crate::api::tiktok::TiktokAPI;
-use crate::api::twitter::TwitterAPI;
 use crate::api::*;
+use crate::api_prelude::*;
 use crate::database::MongoDatabase;
 use crate::processing::{LinkInfo, RequestModel, UserRequest};
 use crate::regexp;
@@ -15,9 +14,11 @@ mod macros;
 mod commands;
 
 use commands::*;
-
+#[cfg(feature = "twitter")]
 generate_api_handler!(twitter_api_handler, TwitterAPI, TwitterCommands);
+#[cfg(feature = "instagram")]
 generate_api_handler!(instagram_api_handler, InstagramAPI, InstagramCommands);
+#[cfg(feature = "tiktok")]
 generate_api_handler!(tiktok_api_handler, TiktokAPI, TiktokCommands);
 
 #[derive(Clone)]
@@ -35,30 +36,33 @@ pub(crate) async fn run(bot: AutoSend<Throttle<Bot>>, req_sender: SyncSender<Use
                 .endpoint(command_handling),
         )
         .branch(
-            dptree::entry()
-                .filter_command::<TwitterCommands>()
-                .endpoint(twitter_api_handler),
-        )
-        .branch(
-            dptree::entry()
-                .filter_command::<InstagramCommands>()
-                .endpoint(instagram_api_handler),
-        )
-        .branch(
-            dptree::entry()
-                .filter_command::<TiktokCommands>()
-                .endpoint(tiktok_api_handler),
-        )
-        .branch(
             dptree::filter(|msg: Message| {
                 let text = msg.text().unwrap_or_default();
-                regexp::TWITTER_LINK.is_match(text)
-                    || regexp::TIKTOK_FULL_LINK.is_match(text)
-                    || regexp::TIKTOK_SHORT_LINK.is_match(text)
-                    || regexp::INSTAGRAM_LINK.is_match(text)
+                regexp::match_api(text).is_some()
             })
             .endpoint(link_handler),
         );
+
+    #[cfg(feature = "twitter")]
+    let handler = handler.branch(
+        dptree::entry()
+            .filter_command::<TwitterCommands>()
+            .endpoint(twitter_api_handler),
+    );
+
+    #[cfg(feature = "instagram")]
+    let handler = handler.branch(
+        dptree::entry()
+            .filter_command::<InstagramCommands>()
+            .endpoint(instagram_api_handler),
+    );
+
+    #[cfg(feature = "tiktok")]
+    let handler = handler.branch(
+        dptree::entry()
+            .filter_command::<InstagramCommands>()
+            .endpoint(tiktok_api_handler),
+    );
 
     Dispatcher::builder(bot, handler)
         .dependencies(dptree::deps![parameters])
@@ -91,9 +95,13 @@ async fn link_handler(
         return Ok(());
     }
     for (matches, api) in vec![
+        #[cfg(feature = "twitter")]
         (regexp::TWITTER_LINK.find_iter(text), Api::Twitter),
+        #[cfg(feature = "tiktok")]
         (regexp::TIKTOK_FULL_LINK.find_iter(text), Api::Tiktok),
+        #[cfg(feature = "tiktok")]
         (regexp::TIKTOK_SHORT_LINK.find_iter(text), Api::Tiktok),
+        #[cfg(feature = "instagram")]
         (regexp::INSTAGRAM_LINK.find_iter(text), Api::Instagram),
     ] {
         for m in matches {
@@ -118,13 +126,13 @@ async fn command_handling(
     let chat_id = message.chat.id.to_string();
     let status = match command {
         BasicCommands::Help => {
-            let text = format!(
-                "{}\n{}\n{}\n{}",
-                BasicCommands::descriptions(),
-                TwitterCommands::descriptions(),
-                InstagramCommands::descriptions(),
-                TiktokCommands::descriptions()
-            );
+            let text = BasicCommands::descriptions().to_string();
+            #[cfg(feature = "twitter")]
+            let text = format!("{}\n\n{}", text, &TwitterCommands::descriptions());
+            #[cfg(feature = "tiktok")]
+            let text = format!("{}\n\n{}", text, &TiktokCommands::descriptions());
+            #[cfg(feature = "instagram")]
+            let text = format!("{}\n\n{}", text, &InstagramCommands::descriptions());
             bot.send_message(message.chat.id, text).await?;
             Ok(())
         }
@@ -179,8 +187,11 @@ async fn get_subscription_string_for_api<Api: DatabaseInfoProvider + ApiName>(
 async fn show_subscriptions(bot: &AutoSend<Throttle<Bot>>, chat_id: &str) -> anyhow::Result<()> {
     let db = super::create_db().await?;
     let sub_string = vec![
+        #[cfg(feature = "twitter")]
         get_subscription_string_for_api::<TwitterAPI>(chat_id, &db).await?,
+        #[cfg(feature = "instagram")]
         get_subscription_string_for_api::<InstagramAPI>(chat_id, &db).await?,
+        #[cfg(feature = "tiktok")]
         get_subscription_string_for_api::<TiktokAPI>(chat_id, &db).await?,
     ]
     .into_iter()
@@ -188,16 +199,13 @@ async fn show_subscriptions(bot: &AutoSend<Throttle<Bot>>, chat_id: &str) -> any
     .collect::<Vec<String>>()
     .join("");
 
+    let chat_id = ChatId(chat_id.parse()?);
     if !sub_string.is_empty() {
-        bot.send_message(
-            chat_id.parse::<i64>().unwrap(),
-            format!("Group subscriptions:\n {}", sub_string),
-        )
-        .await?;
+        bot.send_message(chat_id, format!("Group subscriptions:\n {}", sub_string))
+            .await?;
     } else {
         let empty_text = "Currently, group doesn't have any subscriptions";
-        bot.send_message(chat_id.parse::<i64>().unwrap(), empty_text)
-            .await?;
+        bot.send_message(chat_id, empty_text).await?;
     }
     Ok(())
 }
@@ -227,7 +235,7 @@ where
     };
     request_sender.send(UserRequest::LastNData(model, n))?;
     bot.send_message(
-        chat_id.parse::<i64>()?,
+        ChatId(chat_id.parse()?),
         "Command added to the queue. You will be notified once its processed",
     )
     .await?;
@@ -245,7 +253,7 @@ where
     Api: DatabaseInfoProvider + ApiName,
 {
     let db = super::create_db().await?;
-    let id: i64 = chat_id.parse()?;
+    let id = ChatId(chat_id.parse()?);
 
     if db
         .is_user_subscribed::<Api>(&username, chat_id, stype)
@@ -281,7 +289,7 @@ where
     Api: DatabaseInfoProvider,
 {
     let db = super::create_db().await?;
-    let id: i64 = chat_id.parse()?;
+    let id = ChatId(chat_id.parse()?);
     if !db
         .is_user_subscribed::<Api>(&username, chat_id, stype)
         .await?

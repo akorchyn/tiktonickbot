@@ -16,6 +16,16 @@ def api_name_to_api(apis):
     return decorator
 
 
+def abort_500_on_error(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            abort(500, str(e))
+    return wrapper
+
+
 def abort_404_on_error(func):
     @wraps(func)
     def inner(*args, **kwargs):

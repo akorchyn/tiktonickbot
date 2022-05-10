@@ -33,8 +33,11 @@ impl<'a> Request<'a> {
 impl Api {
     fn api_to_string(&self) -> String {
         match self {
+            #[cfg(feature = "twitter")]
             Api::Twitter => "twitter",
+            #[cfg(feature = "tiktok")]
             Api::Tiktok => "tiktok",
+            #[cfg(feature = "instagram")]
             Api::Instagram => "instagram",
         }
         .to_string()

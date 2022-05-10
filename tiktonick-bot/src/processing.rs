@@ -3,15 +3,17 @@ pub(crate) mod updater;
 
 use futures::future::join_all;
 use futures::FutureExt;
-use teloxide::prelude2::*;
-use teloxide::types::{InputFile, InputMedia, InputMediaPhoto, InputMediaVideo, ParseMode};
+use teloxide::prelude::*;
+use teloxide::types::{
+    ChatId, InputFile, InputMedia, InputMediaPhoto, InputMediaVideo, ParseMode, UserId,
+};
 
 use std::env;
 use std::fs::File;
 use std::io;
 use std::mem::take;
 use std::path::Path;
-use teloxide::adaptors::Throttle;
+use teloxide::adaptors::{AutoSend, Throttle};
 
 use crate::api::{
     Api, DataForDownload, OutputType, PrepareDescription, ReturnDataForDownload, ReturnUserInfo,
@@ -64,7 +66,7 @@ where
     UserInfo: ReturnUserInfo,
     Content: ReturnDataForDownload,
 {
-    let chat_id: i64 = chat_id.parse().unwrap();
+    let chat_id = ChatId(chat_id.parse().unwrap());
     let mut builder = Api::prepare_description(user_info, content, &output_type);
     let send_text_message = |builder: DescriptionBuilder| {
         let text = builder.build();

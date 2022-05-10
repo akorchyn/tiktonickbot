@@ -6,17 +6,19 @@ from api.social_network_api import SocialNetworkAPI
 from api.twitter import TwitterAPI
 from api.instagram import InstagramAPI
 from api.tiktok import TikTokAPI
-from common.decorators import api_name_to_api, abort_404_on_error, abort_503_on_proxy_failure
+from common.decorators import abort_500_on_error, api_name_to_api, abort_404_on_error, abort_503_on_proxy_failure
 
 app = Flask(__name__)
 auth = HTTPTokenAuth(scheme='Bearer')
 
 API_KEY = os.environ.get('SECRET_KEY', 'blahblah')
-APIs = {
-    "twitter": TwitterAPI(),
-    "instagram": InstagramAPI(),
-    "tiktok": TikTokAPI()
-}
+APIs = {}
+if "TWITTER_OFF" not in os.environ:
+    APIs["twitter"] = TwitterAPI()
+if "INSTAGRAM_OFF" not in os.environ:
+    APIs["instagram"] = InstagramAPI()
+if "TIKTOK_OFF" not in os.environ:
+    APIs["tiktok"] = TikTokAPI()
 
 
 @auth.verify_token
@@ -28,6 +30,7 @@ def verify_token(token):
 @app.route(f"/api/<api_name>/user_info/<username>", methods=['GET'])
 @auth.login_required
 @api_name_to_api(APIs)
+@abort_500_on_error
 @abort_503_on_proxy_failure
 @abort_404_on_error
 def user_info(api: SocialNetworkAPI, username: str):
@@ -37,6 +40,7 @@ def user_info(api: SocialNetworkAPI, username: str):
 @app.route(f"/api/<api_name>/<type>/<username>/<int:count>", methods=['GET'])
 @auth.login_required
 @api_name_to_api(APIs)
+@abort_500_on_error
 @abort_503_on_proxy_failure
 @abort_404_on_error
 def content(api: SocialNetworkAPI, type: str, username: str, count: int):
@@ -48,6 +52,7 @@ def content(api: SocialNetworkAPI, type: str, username: str, count: int):
 @app.route(f"/api/<api_name>/content_by_id/<content_id>", methods=['GET'])
 @auth.login_required
 @api_name_to_api(APIs)
+@abort_500_on_error
 @abort_503_on_proxy_failure
 @abort_404_on_error
 def content_by_id(api: SocialNetworkAPI, content_id: str):

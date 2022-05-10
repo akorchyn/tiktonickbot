@@ -1,14 +1,12 @@
 use crate::api::*;
 
-use teloxide::prelude2::*;
+use teloxide::prelude::*;
 
-use crate::api::instagram::InstagramAPI;
-use crate::api::tiktok::TiktokAPI;
-use crate::api::twitter::TwitterAPI;
+use crate::api_prelude::*;
 use crate::database::User;
 use futures::future::join_all;
 use std::sync::mpsc;
-use teloxide::adaptors::Throttle;
+use teloxide::adaptors::{AutoSend, Throttle};
 use teloxide::types::ChatId;
 
 use super::*;
@@ -17,13 +15,17 @@ pub(crate) async fn run(bot: AutoSend<Throttle<Bot>>, request_queue: mpsc::Recei
     let db = create_db()
         .await
         .expect("Expected successful connection to DB");
-    let tiktok_api = TiktokAPI::from_env();
-    let twitter_api = TwitterAPI::from_env();
-    let instagram_api = InstagramAPI::from_env();
-    tokio::spawn(update_loop_handler(bot.clone(), tiktok_api, db.clone()));
-    tokio::spawn(update_loop_handler(bot.clone(), twitter_api, db.clone()));
-    tokio::spawn(update_loop_handler(bot.clone(), instagram_api, db.clone()));
-    request_handler(bot, request_queue, db).await;
+
+    let futures = vec![
+        #[cfg(feature = "tiktok")]
+        update_loop_handler(bot.clone(), TiktokAPI::from_env(), db.clone()).boxed(),
+        #[cfg(feature = "twitter")]
+        update_loop_handler(bot.clone(), TwitterAPI::from_env(), db.clone()).boxed(),
+        #[cfg(feature = "instagram")]
+        update_loop_handler(bot.clone(), InstagramAPI::from_env(), db.clone()).boxed(),
+        request_handler(bot, request_queue, db).boxed(),
+    ];
+    futures::future::join_all(futures).await;
 }
 
 async fn request_handler(
@@ -82,18 +84,27 @@ async fn process_queue(
         .map(|request| async {
             let status = match &request {
                 UserRequest::LastNData(r, n) => match r.api {
+                    #[cfg(feature = "twitter")]
                     Api::Twitter => last_n_data::<TwitterAPI>(bot, r, *n).await,
+                    #[cfg(feature = "tiktok")]
                     Api::Tiktok => last_n_data::<TiktokAPI>(bot, r, *n).await,
+                    #[cfg(feature = "instagram")]
                     Api::Instagram => last_n_data::<InstagramAPI>(bot, r, *n).await,
                 },
                 UserRequest::Subscribe(r) => match r.api {
+                    #[cfg(feature = "twitter")]
                     Api::Twitter => subscribe::<TwitterAPI>(bot, db, r).await,
+                    #[cfg(feature = "tiktok")]
                     Api::Tiktok => subscribe::<TiktokAPI>(bot, db, r).await,
+                    #[cfg(feature = "instagram")]
                     Api::Instagram => subscribe::<InstagramAPI>(bot, db, r).await,
                 },
                 UserRequest::ProcessLink(l) => match l.api {
+                    #[cfg(feature = "twitter")]
                     Api::Twitter => process_link::<TwitterAPI>(bot, l).await,
+                    #[cfg(feature = "tiktok")]
                     Api::Tiktok => process_link::<TiktokAPI>(bot, l).await,
+                    #[cfg(feature = "instagram")]
                     Api::Instagram => process_link::<InstagramAPI>(bot, l).await,
                 },
             };
@@ -145,7 +156,7 @@ where
             Err(anyhow::anyhow!("Failed to fetch user data"))
         }
     } else {
-        let chat_id: i64 = link_info.chat_id.parse().unwrap();
+        let chat_id = ChatId(link_info.chat_id.parse().unwrap());
         bot.send_message(chat_id, "Post doesn't exist or it's private".to_string())
             .disable_notification(true)
             .await?;
@@ -186,7 +197,7 @@ where
             .await?;
         }
     } else {
-        let chat_id: i64 = request_model.chat_id.parse().unwrap();
+        let chat_id = UserId(request_model.chat_id.parse()?);
         bot.send_message(chat_id, format!("@{} user not found.", &request_model.user))
             .await?;
     }
@@ -228,7 +239,7 @@ where
             db.subscribe_user::<Api>(user_info.unique_user_name(), &model.chat_id, model.stype)
                 .await?;
             bot.send_message(
-                ChatId::Id(chat_id),
+                ChatId(chat_id),
                 format!(
                     "Successfully subscribed to {} aka {}",
                     &model.user,
@@ -238,7 +249,7 @@ where
             .await?;
         } else {
             bot.send_message(
-                ChatId::Id(chat_id),
+                ChatId(chat_id),
                 format!(
                     "Failed to subscribe for user: @{}. User not found",
                     &model.user
